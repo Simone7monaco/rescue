@@ -1,39 +1,27 @@
 import os
-import torch
-import numpy as np
 import argparse
 import ast
 from pathlib import Path
 import pickle
 import wandb
+from easydict import EasyDict as ed
+
+import torch
+from neural_net.cnn_configurations import TrainingConfig
 from neural_net.utils import str2bool
 
-from torch import nn
-from neural_net.cnn_configurations import TrainingConfig
-
-from base_train import launch_training
-from config import *
-import segmentation_models_pytorch as smp
-
-from neural_net.unet import UNet
-from neural_net.utils import initialize_weight
-
-from base_train import Satmodel
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.callbacks.early_stopping import EarlyStopping
-
 from pytorch_lightning.loggers import WandbLogger
 
-from neural_net.attention_unet import AttentionUnet
-from neural_net.canet_parts.networks.network import Comprehensive_Atten_Unet
+from base_train import Satmodel
+import neural_net
 
 
 def get_args():
     parser = argparse.ArgumentParser(description='Training of the U-Net usign Pytorch Lightining framework.')
-#     parser.add_argument('freeze', nargs='*', default=None)
     parser.add_argument('--discard_results', nargs='?', default=False, const=True, help = "Prevent Wandb to save validation result for each step.")
-    parser.add_argument('--pretrained', nargs='?', default=False, const=True, help = "Encoder weights pretrained from landcover classification.")
     parser.add_argument('-k', '--key', type=str, default='blue', help = "Test set fold key. Default is 'blue'.")
     parser.add_argument('-m', '--model', type=str, default='unet', help = "Select the model (unet, canet or attnet available). Default is unet.")
     
@@ -52,13 +40,8 @@ def get_args():
 
     return args
 
-def customize_configs(args, config):
-    for attr, val in args.__dict__.items():
-        if hasattr(config, attr) and val is not None:
-            setattr(config, attr, val)
 
 def main(args):        
-    freeze = None#int(args.freeze[-1]) if args.freeze else None
     
     if args.active_attention_layers:
         active_attention_layers = ast.literal_eval(args.active_attention_layers)
@@ -66,64 +49,27 @@ def main(args):
         active_attention_layers = [i+1 for i, act in enumerate([args.active_attention_layer1, args.active_attention_layer2, args.active_attention_layer3, args.active_attention_layer4]) if act]
     
     
-    config = TrainingConfig(scheduler_tuple=None, epochs=50)
+    hparams = TrainingConfig("configs/baseline.yaml", key=args.key)
 #                             , n_channels=24, mode='both')
 #                             , only_burnt=False)
-    customize_configs(args, config)
 
-    
-    if freeze:
-        print(f"Freezing up to layer {freeze}\n")
-        
-#     if args.model=='canet' and args.active_attention_layers:
-#         name_run += "-".join([str(a) for a in active_attention_layers])
-    outdir = Path("../data/new_ds_logs/Propaper") / f"{args.model}" / f"fold_{config.key}"
+    outdir = Path("../data/new_ds_logs/Propaper") / f"{args.model}" / f"fold_{hparams.key}"
     
     outdir.mkdir(parents=True, exist_ok=True)
     print(f'Best checkpoints saved in "{outdir}"')
-
     
-    criterion = nn.BCEWithLogitsLoss()
-    result_filename = f'pretrained_{args.model}'
-
-#     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    if args.model == 'unet':
-        model = UNet(config.n_channels, len(config.mask_intervals) if config.classification else 1, act='relu')
-        model.apply(initialize_weight)
-        
-    if args.model == 'canet':
-        model = Comprehensive_Atten_Unet(in_ch=config.n_channels, n_classes=1, im_size=(480, 480))
-    if args.model == 'attnet':
-        if args.active_attention_layers is None: active_attention_layers = [1, 2, 3, 4]
-        model = AttentionUnet(encoder_name=args.encoder, classes=1, in_channels=config.n_channels)
-        model.activate_attention_layers(active_attention_layers)
-        
-        print(f'Attention layers: {active_attention_layers}')   
-        config.update_transforms() #imagenet weights
-                
-    
-#     if args.model == 'unet':
-#         if args.pretrained:
-#             model.load_state_dict(torch.load('../data/pretrained_weights/unet_landcover.pt'))
-#             return
-#         else:
-    
-    hparams = {
-        'model' : str(model.__class__).split('.')[-1],
-    }
     
     if active_attention_layers:
         hparams.update({'encoder' : args.encoder,
                         'active_attention_layers' : active_attention_layers,
                     })
-    hparams.update(config.__dict__)
     
     name = f"{args.model}_{args.encoder}_lr{args.lr}_att{''.join([str(int(a in active_attention_layers)) for a in range(1,5)])}"
     
-    run = wandb.init(project="rescue", entity="smonaco", name=name, settings=wandb.Settings(start_method='fork'))
+#     run = wandb.init(project="rescue", entity="smonaco", name=name, settings=wandb.Settings(start_method='fork'))
 
-    outdir = outdir / wandb.run.name
-    pl_model = Satmodel(model, criterion, hparams, discard_res=args.discard_results)
+#     outdir = outdir / wandb.run.name
+    pl_model = Satmodel(hparams, discard_res=args.discard_results)
 
     earlystopping_callback = EarlyStopping(
         monitor='val_loss',
@@ -141,13 +87,14 @@ def main(args):
         save_top_k=2,
     )
     
-    logger = WandbLogger(save_dir=outdir, name=name)
-    logger.log_hyperparams(vars(config))
-    logger.watch(model, log='all', log_freq=1)
+#     logger = WandbLogger(save_dir=outdir, name=name)
+#     logger.log_hyperparams(hparams)
+#     logger.watch(pl_model, log='all', log_freq=1)
+    logger = None
     
     trainer = pl.Trainer(
         gpus=1 if torch.cuda.is_available() else 0,
-        max_epochs=config.epochs,
+        max_epochs=hparams.epochs,
         # distributed_backend="ddp",  # DistributedDataParallel
         log_every_n_steps=1,
         progress_bar_refresh_rate=1,

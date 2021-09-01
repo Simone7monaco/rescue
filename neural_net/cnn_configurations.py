@@ -1,4 +1,6 @@
 import os
+import yaml
+from easydict import EasyDict as ed
 
 from config import *
 from neural_net.cross_validator import ConcatenatedCrossValidator, CrossValidator, GradcamCrossValidator
@@ -15,135 +17,96 @@ from neural_net.segnet import SegNet, ConcatenatedSegNet
 from torch import nn, optim
 from collections import OrderedDict
 import pandas as pd
-import albumentations as albu
 
-
-class TrainingConfig:
-    """
-    Defines a training configuration for the model.
-    """
-    def __init__(self, key='blue', batch_size=8, n_channels=12, mask_one_hot=False, classification=False,
-                 epochs=50, lr=1e-4, wd=0, product_list=['sentinel2'], mode='post',
-                 mask_intervals=[(0, 36), (37, 96), (97, 160), (161, 224), (225, 255)],
-                 height=480, width=480, filter_validity_mask=True, only_burnt=True, mask_filtering=False, imagenet=False, seed=47,
-                 patience=5, tol=1e-2, optimizer=optim.Adam, scheduler_tuple= [optim.lr_scheduler.ReduceLROnPlateau, {'factor': 0.25, 'patience': 2}]):
+def TrainingConfig(conf_file, **args):
                  
-        # [optim.lr_scheduler.CosineAnnealingWarmRestarts, {'T_0': 10, 'T_mult': 2}]
-
-        # Set hyperparameters
-        self.classification = classification
-        self.key = key
-        self.batch_size = batch_size
-        self.n_channels = n_channels
-        self.mask_one_hot = mask_one_hot
-        self.epochs = epochs
-        self.lr = lr
-        self.wd = wd
-        self.product_list = product_list
-        self.mode = mode
-        self.mask_intervals = mask_intervals
-        self.height = height
-        self.width = width
-        self.filter_validity_mask = filter_validity_mask
-        self.only_burnt = only_burnt
-        self.mask_filtering = mask_filtering
-        self.seed = seed
-        self.patience = patience
-        self.tol = tol
-        self.optimizer = optimizer
-        self.scheduler_tuple = scheduler_tuple
-        self.binary = True
-
-        # Input dataset
-        self.master_folder = sentinel_hub_selected_dir
-        self.satellite_csv_path = satellite_csv_path
-
-        # Satellite image bandwitdths
-        all_bands_selector = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
-        self.process_dict = {'sentinel2': all_bands_selector}
-
-        # Test set fold (key) -> validation fold (value)
-        self.validation_dict = {
-            'blue': 'fucsia',
-            'brown': 'fucsia',
-            'fucsia': 'green',
-            'green': 'fucsia',
-            'orange': 'fucsia',
-            'red': 'fucsia',
-            'yellow': 'fucsia'
-        }
-
-        self.groups = self.read_groups()
-        
-        if imagenet:
-            imgnet_mean = [1 for i in range(n_channels)]
-            imgnet_std = [1 for i in range(n_channels)]
-            imgnet_mean[1:4] = (0.406, 0.456, 0.485)  # rgb are 3,2,1
-            imgnet_std[1:4] = (0.225, 0.224, 0.229)
-            mn = imgnet_mean
-            std = imgnet_std
-        else:
-            mn = (0.5,) * n_channels
-            std = (0.5,) * n_channels
-            
-        # Dataset augmentation and normalization
-        self.train_transform = transforms.Compose([
-            RandomRotate(0.5, 50, seed=seed),
-            RandomVerticalFlip(0.5, seed=seed),
-            RandomHorizontalFlip(0.5, seed=seed),
-            RandomShear(0.5, 20, seed=seed),
-            ToTensor(round_mask=True),
-#             Resize(800),
-            Normalize(mn, std)
-        ])
-        self.test_transform = transforms.Compose([
-            ToTensor(round_mask=True),
-#             Resize(800),
-            Normalize(mn, std)
-        ])
+    with open(conf_file, "r") as f:
+        hparams = ed(yaml.load(f, Loader=yaml.SafeLoader))
     
-    def update_transforms(self):
-        print("Using pretraining for imagenet weights\n")
-        
-        imgnet_mean = [1 for i in range(self.n_channels)]
-        imgnet_std = [1 for i in range(self.n_channels)]
-        imgnet_mean[1:4] = (0.406, 0.456, 0.485)  # rgb are 3,2,1
-        imgnet_std[1:4] = (0.225, 0.224, 0.229)
-        mn = imgnet_mean
-        std = imgnet_std
-        
-        self.train_transform = transforms.Compose([
-            RandomRotate(0.5, 50, seed=self.seed),
-            RandomVerticalFlip(0.5, seed=self.seed),
-            RandomHorizontalFlip(0.5, seed=self.seed),
-            RandomShear(0.5, 20, seed=self.seed),
-            ToTensor(round_mask=True),
-            Resize(800),
-            Normalize(imgnet_mean, imgnet_std)
-        ])
-        self.test_transform = transforms.Compose([
-            ToTensor(round_mask=True),
-            Resize(800),
-            Normalize(imgnet_mean, imgnet_std)
-        ])
-        
-    def read_groups(self, verbose=False):
-        """
-        Read folds (i.e., colors) - for each fold get the corresponding input folders of Sentinel-2 dataset
-        @return dictionary: key = fold color, value = list of dataset folders in this fold
-        """
-        groups = OrderedDict()
-        df = pd.read_csv(satellite_folds_csv_path)
-        grpby = df.groupby('fold')
-        for grp in grpby:
-            folder_list = grp[1]['folder'].tolist()
+    for k in args:
+        found = False
+        if k in hparams.keys():
+            hparams[k] = args[k]
+            found = True
+        for k_n in hparams.keys():
+            if type(hparams[k_n]) in [dict, ed] and k in hparams[k_n].keys():
+                hparams[k_n][k] = args[k]
+                found = True
+        if not found: print(f"\nParameter `{k}` not found.\n")
+    
+    hparams.dataset_specs.mask_intervals = [(0, 36), (37, 96), (97, 160), (161, 224), (225, 255)]
+    
+    hparams.groups = read_groups()
+    
+    if hparams.imagenet:
+        mn = [1 for i in range(hparams.model.n_channels)]
+        std = [1 for i in range(hparams.model.n_channels)]
+        mn[1:4] = (0.406, 0.456, 0.485)  # rgb are 3,2,1
+        std[1:4] = (0.225, 0.224, 0.229)
+    else:
+        mn = (0.5,) * hparams.model.n_channels
+        std = (0.5,) * hparams.model.n_channels
+            
+    # Dataset augmentation and normalization
+    hparams.train_transform = transforms.Compose([
+        RandomRotate(0.5, 50, seed=hparams.seed),
+        RandomVerticalFlip(0.5, seed=hparams.seed),
+        RandomHorizontalFlip(0.5, seed=hparams.seed),
+        RandomShear(0.5, 20, seed=hparams.seed),
+        ToTensor(round_mask=True),
+#             Resize(800),
+        Normalize(mn, std)
+    ])
+    hparams.test_transform = transforms.Compose([
+        ToTensor(round_mask=True),
+#             Resize(800),
+        Normalize(mn, std)
+    ])
+    
+    return hparams
+    
+def update_transforms():
+    print("\nUsing pretraining for imagenet weights.\n")
 
-            if verbose==True:
-                print('______________________________________')
-                print(f'fold key: {grp[0]}')
-                print(f'folders ({len(folder_list)}): {str(folder_list)}')
-            groups[grp[0]] = folder_list
-        return groups
+    imgnet_mean = [1 for i in range(self.n_channels)]
+    imgnet_std = [1 for i in range(self.n_channels)]
+    imgnet_mean[1:4] = (0.406, 0.456, 0.485)  # rgb are 3,2,1
+    imgnet_std[1:4] = (0.225, 0.224, 0.229)
+    mn = imgnet_mean
+    std = imgnet_std
+
+    self.train_transform = transforms.Compose([
+        RandomRotate(0.5, 50, seed=self.seed),
+        RandomVerticalFlip(0.5, seed=self.seed),
+        RandomHorizontalFlip(0.5, seed=self.seed),
+        RandomShear(0.5, 20, seed=self.seed),
+        ToTensor(round_mask=True),
+        Resize(800),
+        Normalize(imgnet_mean, imgnet_std)
+    ])
+    self.test_transform = transforms.Compose([
+        ToTensor(round_mask=True),
+        Resize(800),
+        Normalize(imgnet_mean, imgnet_std)
+    ])
+        
+def read_groups(verbose=False):
+    """
+    Read folds (i.e., colors) - for each fold get the corresponding input folders of Sentinel-2 dataset
+    @return dictionary: key = fold color, value = list of dataset folders in this fold
+    """
+    groups = OrderedDict()
+    df = pd.read_csv(satellite_folds_csv_path)
+    grpby = df.groupby('fold')
+    for grp in grpby:
+        folder_list = grp[1]['folder'].tolist()
+
+        if verbose==True:
+            print('______________________________________')
+            print(f'fold key: {grp[0]}')
+            print(f'folders ({len(folder_list)}): {str(folder_list)}')
+        groups[grp[0]] = folder_list
+    return groups
 
 
 class ConcatTypes:
