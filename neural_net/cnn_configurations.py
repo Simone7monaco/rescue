@@ -1,5 +1,6 @@
 import os
 import yaml
+from pathlib import Path
 from easydict import EasyDict as ed
 
 from config import *
@@ -15,15 +16,17 @@ from neural_net.nested_unet import NestedUNet, ConcatenatedNestedUNet
 from neural_net.segnet import SegNet, ConcatenatedSegNet
 
 from torch import nn, optim
-from collections import OrderedDict
 import pandas as pd
 
-def TrainingConfig(conf_file, **args):
-                 
+def TrainingConfig(**args):
+    name = args["single_model"] if args.get("single_model") else f"concat_{args['double_model']}"
+    conf_file = [f for f in (Path.cwd() / "configs").iterdir() if name.lower() == f.stem.lower()][0]
+    
     with open(conf_file, "r") as f:
         hparams = ed(yaml.load(f, Loader=yaml.SafeLoader))
     
     for k in args:
+        if args[k] is None or str(k) in ['single_model', 'double_model', 'discard_results', 'encoder']: continue
         found = False
         if k in hparams.keys():
             hparams[k] = args[k]
@@ -36,7 +39,25 @@ def TrainingConfig(conf_file, **args):
     
     hparams.dataset_specs.mask_intervals = [(0, 36), (37, 96), (97, 160), (161, 224), (225, 255)]
     
-    hparams.groups = read_groups()
+    hparams.groups = read_groups(hparams.fold_separation_csv)
+    
+    hparams.validation_dict = {'purple': 'coral',
+                               'coral': 'cyan',
+                               'pink': 'coral',
+                               'grey': 'coral',
+                               'cyan': 'coral',
+                               'lime': 'coral',
+                               'magenta': 'coral'
+                              }
+#     {
+#         "blue": "fucsia",
+#         "brown": "fucsia",
+#         "fucsia": "green",
+#         "green": "fucsia",
+#         "orange": "fucsia",
+#         "red": "fucsia",
+#         "yellow": "fucsia",
+#     }
     
     if hparams.imagenet:
         mn = [1 for i in range(hparams.model.n_channels)]
@@ -90,22 +111,21 @@ def update_transforms():
         Normalize(imgnet_mean, imgnet_std)
     ])
         
-def read_groups(verbose=False):
+def read_groups(satellite_folds, verbose=False):
     """
     Read folds (i.e., colors) - for each fold get the corresponding input folders of Sentinel-2 dataset
     @return dictionary: key = fold color, value = list of dataset folders in this fold
     """
-    groups = OrderedDict()
-    df = pd.read_csv(satellite_folds_csv_path)
-    grpby = df.groupby('fold')
-    for grp in grpby:
-        folder_list = grp[1]['folder'].tolist()
+    groups = {}
+    df = pd.read_csv(satellite_folds)
+    for key, grp in df.groupby('fold'):
+        folder_list = grp['folder'].tolist()
 
         if verbose==True:
             print('______________________________________')
-            print(f'fold key: {grp[0]}')
+            print(f'fold key: {key}')
             print(f'folders ({len(folder_list)}): {str(folder_list)}')
-        groups[grp[0]] = folder_list
+        groups[key] = folder_list
     return groups
 
 

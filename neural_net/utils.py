@@ -13,6 +13,13 @@ from neural_net.pspnet import PSPNet
 import wandb
 import argparse
 
+from torch import nn, optim
+from neural_net.unet import UNet, ConcatenatedUNet
+from neural_net.pspnet import PSPNet
+from neural_net.nested_unet import NestedUNet, ConcatenatedNestedUNet
+from neural_net.segnet import SegNet, ConcatenatedSegNet
+from neural_net.loss import IoULoss, FuzzyIoULoss, GDiceLossV2, ComboLoss, softIoULoss, F1MSE
+
 
 def str2bool(v):
     if isinstance(v, bool):
@@ -23,6 +30,17 @@ def str2bool(v):
         return False
     else:
         raise argparse.ArgumentTypeError('Boolean value expected.')
+
+        
+def eval_object(hdict, **default_kwargs):
+    kwargs = hdict.copy()
+    ob_type = kwargs.pop("name")
+    
+    for name, value in default_kwargs.items():
+        kwargs.setdefault(name, value)
+        
+    return eval(ob_type)(**kwargs)
+
 
 def set_seed(seed):
     os.environ['PYTHONHASHSEED']=str(seed)

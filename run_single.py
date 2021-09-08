@@ -23,17 +23,17 @@ def get_args():
     parser = argparse.ArgumentParser(description='Training of the U-Net usign Pytorch Lightining framework.')
     parser.add_argument('--discard_results', nargs='?', default=False, const=True, help = "Prevent Wandb to save validation result for each step.")
     parser.add_argument('-k', '--key', type=str, default='blue', help = "Test set fold key. Default is 'blue'.")
-    parser.add_argument('-m', '--model', type=str, default='unet', help = "Select the model (unet, canet or attnet available). Default is unet.")
+    parser.add_argument('-m', '--single_model', type=str, default='unet', help = "Select the model (unet, canet or attnet available). Default is unet.")
     
     parser.add_argument('--lr', type=float, default=None, help = "Custom lr.")
     parser.add_argument('--seed', type=float, default=None, help = "Custom seed.")
     parser.add_argument('--encoder', type=str, default='resnet34', help = "Select the model encoder (only available for smp models). Default is resnet34.")
     
-    parser.add_argument('-a', '--active_attention_layers', help="List of Active Attention layer (between 1~4). Write [1,3] to set AAL on blocks 1 and 3.", default=None)
-    parser.add_argument('-a1', '--active_attention_layer1', type=str2bool, help="Activate Attention layer 1", nargs='?', const=True, default=False)
-    parser.add_argument('-a2', '--active_attention_layer2', type=str2bool, help="Activate Attention layer 2", nargs='?', const=True, default=False)
-    parser.add_argument('-a3', '--active_attention_layer3', type=str2bool, help="Activate Attention layer 3", nargs='?', const=True, default=False)
-    parser.add_argument('-a4', '--active_attention_layer4', type=str2bool, help="Activate Attention layer 4", nargs='?', const=True, default=False)
+#     parser.add_argument('-a', '--active_attention_layers', help="List of Active Attention layer (between 1~4). Write [1,3] to set AAL on blocks 1 and 3.", default=None)
+#     parser.add_argument('-a1', '--active_attention_layer1', type=str2bool, help="Activate Attention layer 1", nargs='?', const=True, default=False)
+#     parser.add_argument('-a2', '--active_attention_layer2', type=str2bool, help="Activate Attention layer 2", nargs='?', const=True, default=False)
+#     parser.add_argument('-a3', '--active_attention_layer3', type=str2bool, help="Activate Attention layer 3", nargs='?', const=True, default=False)
+#     parser.add_argument('-a4', '--active_attention_layer4', type=str2bool, help="Activate Attention layer 4", nargs='?', const=True, default=False)
     
     
     args = parser.parse_args()
@@ -41,51 +41,31 @@ def get_args():
     return args
 
 
-def main(args):        
+def train(args):        
     
-    if args.active_attention_layers:
-        active_attention_layers = ast.literal_eval(args.active_attention_layers)
-    else:
-        active_attention_layers = [i+1 for i, act in enumerate([args.active_attention_layer1, args.active_attention_layer2, args.active_attention_layer3, args.active_attention_layer4]) if act]
+#     if args.active_attention_layers:
+#         active_attention_layers = ast.literal_eval(args.active_attention_layers)
+#     else:
+#         active_attention_layers = [i+1 for i, act in enumerate([args.active_attention_layer1, args.active_attention_layer2, args.active_attention_layer3, args.active_attention_layer4]) if act]
     
     
-    hparams = TrainingConfig("configs/baseline.yaml", key=args.key)
+    hparams = TrainingConfig(**vars(args))
 #                             , n_channels=24, mode='both')
 #                             , only_burnt=False)
-
-    outdir = Path("../data/new_ds_logs/Propaper") / f"{args.model}" / f"fold_{hparams.key}"
     
+#     run = wandb.init(reinit=True, project="rescue", entity="smonaco", name=name, settings=wandb.Settings(start_method='fork'))
+    
+    outdir = Path("../data/new_ds_logs/Propaper")
+#     outdir = outdir / wandb.run.name
     outdir.mkdir(parents=True, exist_ok=True)
     print(f'Best checkpoints saved in "{outdir}"')
-    
-    
-    if active_attention_layers:
-        hparams.update({'encoder' : args.encoder,
-                        'active_attention_layers' : active_attention_layers,
-                    })
-    
-    name = f"{args.model}_{args.encoder}_lr{args.lr}_att{''.join([str(int(a in active_attention_layers)) for a in range(1,5)])}"
-    
-#     run = wandb.init(project="rescue", entity="smonaco", name=name, settings=wandb.Settings(start_method='fork'))
 
-#     outdir = outdir / wandb.run.name
     pl_model = Satmodel(hparams, discard_res=args.discard_results)
 
-    earlystopping_callback = EarlyStopping(
-        monitor='val_loss',
-        min_delta=0.001,
-        patience=5,
-        verbose=True,
-        mode='min',
-    )
+    earlystopping_callback = eval(hparams.earlystopping.pop('name'))(hparams.earlystopping)
     
-    checkpoint_callback = ModelCheckpoint(
-        dirpath=outdir / "checkpoints",
-        monitor="val_iou",
-        verbose=True,
-        mode="max",
-        save_top_k=2,
-    )
+    hparams["checkpoint"]["dirpath"] = outdir
+    checkpoint_callback = eval(hparams.checkpoint.pop('name'))(hparams.checkpoint)
     
 #     logger = WandbLogger(save_dir=outdir, name=name)
 #     logger.log_hyperparams(hparams)
@@ -114,8 +94,9 @@ def main(args):
     
     best = Path(checkpoint_callback.best_model_path)
     best.rename(best.parent / f'{wandb.run.name}-best{best.suffix}')
+    wandb.finish()
 
 if __name__ == '__main__':
     args = get_args()
-    main(args)
+    train(args)
     
