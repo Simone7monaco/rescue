@@ -1,0 +1,66 @@
+---
+key: blue
+binary: True
+batch_size: 8
+n_channels: 12
+epochs: 50
+imagenet: False
+seed: 47
+patience: 5
+tol: 0.01
+
+criterion: 
+  name: nn.BCEWithLogitsLoss
+
+model:
+  name: UNet
+  n_channels: 12
+  n_classes: 1
+  act: relu
+
+optimizer:
+  name: optim.Adam
+  lr: 0.0001
+  weight_decay: 0
+    
+# scheduler_tuple= [optim.lr_scheduler.ReduceLROnPlateau, {'factor': 0.25, 'patience': 2}]
+
+# Input dataset
+dataset_specs:
+  folder: '../data/sentinel-hub'
+  mask_one_hot: False
+  height: 480
+  width: 480
+  product_list: ['sentinel2']
+  mode: 'post'
+  filter_validity_mask: True
+  process_dict:
+    sentinel2: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+  activation_date_csv: '../data/geospatialdownloader/scripts/satellite_data.csv'
+  mask_filtering: False
+  only_burnt: True
+
+
+# Test set fold (key) -> validation fold (value)
+validation_dict:
+  blue: fucsia
+  brown: fucsia
+  fucsia: green
+  green: fucsia
+  orange: fucsia
+  red: fucsia
+  yellow: fucsia
+
+# Training callbacks
+earlystopping:
+  monitor: val_loss
+  min_delta: 0.001
+  patience: 5
+  verbose: True
+  mode: min
+  
+checkpoint:
+  monitor: val_loss
+  verbose: True
+  mode: min
+  save_top_k: 2
