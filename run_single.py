@@ -21,20 +21,13 @@ import neural_net
 
 def get_args():
     parser = argparse.ArgumentParser(description='Training of the U-Net usign Pytorch Lightining framework.')
-    parser.add_argument('--discard_results', nargs='?', default=False, const=True, help = "Prevent Wandb to save validation result for each step.")
-    parser.add_argument('-k', '--key', type=str, default='blue', help = "Test set fold key. Default is 'blue'.")
+    parser.add_argument('--discard_images', nargs='?', default=False, const=True, help = "Prevent Wandb to save validation result for each step.")
+    parser.add_argument('-k', '--key', type=str, default='purple', help = "Test set fold key. Default is 'blue'.")
     parser.add_argument('-m', '--single_model', type=str, default='unet', help = "Select the model (unet, canet or attnet available). Default is unet.")
     
     parser.add_argument('--lr', type=float, default=None, help = "Custom lr.")
-    parser.add_argument('--seed', type=float, default=None, help = "Custom seed.")
+    parser.add_argument('--seed', type=float, default=7, help = "Custom seed.")
     parser.add_argument('--encoder', type=str, default='resnet34', help = "Select the model encoder (only available for smp models). Default is resnet34.")
-    
-#     parser.add_argument('-a', '--active_attention_layers', help="List of Active Attention layer (between 1~4). Write [1,3] to set AAL on blocks 1 and 3.", default=None)
-#     parser.add_argument('-a1', '--active_attention_layer1', type=str2bool, help="Activate Attention layer 1", nargs='?', const=True, default=False)
-#     parser.add_argument('-a2', '--active_attention_layer2', type=str2bool, help="Activate Attention layer 2", nargs='?', const=True, default=False)
-#     parser.add_argument('-a3', '--active_attention_layer3', type=str2bool, help="Activate Attention layer 3", nargs='?', const=True, default=False)
-#     parser.add_argument('-a4', '--active_attention_layer4', type=str2bool, help="Activate Attention layer 4", nargs='?', const=True, default=False)
-    
     
     args = parser.parse_args()
 
@@ -42,52 +35,39 @@ def get_args():
 
 
 def train(args):        
-    
-#     if args.active_attention_layers:
-#         active_attention_layers = ast.literal_eval(args.active_attention_layers)
-#     else:
-#         active_attention_layers = [i+1 for i, act in enumerate([args.active_attention_layer1, args.active_attention_layer2, args.active_attention_layer3, args.active_attention_layer4]) if act]
-    
-    
     hparams = TrainingConfig(**vars(args))
 #                             , n_channels=24, mode='both')
 #                             , only_burnt=False)
     
-#     run = wandb.init(reinit=True, project="rescue", entity="smonaco", name=name, settings=wandb.Settings(start_method='fork'))
+    if not torch.cuda.is_available():
+        hparams.trainer.gpus = 0
+        hparams.trainer.precision = 32
+    
+    name = f'test_{args.double_model}_{args.key}_{args.seed}'
+    run = wandb.init(reinit=True, project="rescue_paper", entity="smonaco", name=name, settings=wandb.Settings(start_method='fork'))
     
     outdir = Path("../data/new_ds_logs/Propaper")
-#     outdir = outdir / wandb.run.name
+    outdir = outdir / wandb.run.name
     outdir.mkdir(parents=True, exist_ok=True)
     print(f'Best checkpoints saved in "{outdir}"')
 
-    pl_model = Satmodel(hparams, discard_res=args.discard_results)
-
-    earlystopping_callback = eval(hparams.earlystopping.pop('name'))(hparams.earlystopping)
+    pl_model = Satmodel(hparams, {'log_imgs': not args.discard_images})
     
+    earlystopping_callback = EarlyStopping(**hparams.earlystopping)
     hparams["checkpoint"]["dirpath"] = outdir
-    checkpoint_callback = eval(hparams.checkpoint.pop('name'))(hparams.checkpoint)
+    checkpoint_callback = ModelCheckpoint(**hparams.checkpoint)
     
-#     logger = WandbLogger(save_dir=outdir, name=name)
-#     logger.log_hyperparams(hparams)
-#     logger.watch(pl_model, log='all', log_freq=1)
-    logger = None
+    logger = WandbLogger(save_dir=outdir, name=name)
+    logger.log_hyperparams(hparams)
+    logger.watch(pl_model, log='all', log_freq=1)
     
     trainer = pl.Trainer(
-        gpus=1 if torch.cuda.is_available() else 0,
+        **hparams.trainer,
         max_epochs=hparams.epochs,
-        # distributed_backend="ddp",  # DistributedDataParallel
-        log_every_n_steps=1,
-        progress_bar_refresh_rate=1,
-        benchmark=True,
+        logger=logger,
         callbacks=[checkpoint_callback,
                    earlystopping_callback
                    ],
-        precision=16 if torch.cuda.is_available() else 32,
-        gradient_clip_val=5.0,
-        num_sanity_val_steps=5,
-        sync_batchnorm=True,
-        logger=logger,
-        # resume_from_checkpoint="cyst_checkpoints/prova1/epoch=20-step=8546.ckpt"
     )
 
     trainer.fit(pl_model)

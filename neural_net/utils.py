@@ -116,10 +116,10 @@ def compute_squared_errors(prediction, ground_truth, n_classes, check=False):
     counters = []       # number of ground-truth pixels for each class
 
     if isinstance(prediction, torch.Tensor):
-        prediction = prediction.squeeze().cpu().numpy()
+        prediction = prediction.squeeze().detach().cpu().numpy()
 
     if isinstance(ground_truth, torch.Tensor):
-        ground_truth = ground_truth.squeeze().cpu().numpy()
+        ground_truth = ground_truth.squeeze().detach().cpu().numpy()
 
     if len(ground_truth.shape) == 3 and ground_truth.shape[-1] == 1:
         ground_truth = ground_truth.squeeze(axis=-1)

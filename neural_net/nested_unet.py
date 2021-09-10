@@ -73,7 +73,7 @@ class NestedUNet(nn.Module):
     
         
         if self.output_type == 'regr':
-            n_classes = 1  # Regression for Satellite images [0,4]
+            n_classes = 1
         elif type(self.output_type) is int:
             n_classes = self.output_type  # Classification
 

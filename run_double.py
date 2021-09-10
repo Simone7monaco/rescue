@@ -17,93 +17,75 @@ from pytorch_lightning.loggers import WandbLogger
 
 from base_train import Satmodel, Double_Satmodel
 import neural_net
-
-
-def get_args():
-    parser = argparse.ArgumentParser(description='Training of the U-Net usign Pytorch Lightining framework.')
-    parser.add_argument('--discard_results', nargs='?', default=False, const=True, help = "Prevent Wandb to save validation result for each step.")
-    parser.add_argument('-k', '--key', type=str, default='purple', help = "Test set fold key. Default is 'blue'.")
-    parser.add_argument('-m', '--double_model', type=str, default='unet', help = "Select the model (unet, canet or attnet available). Default is unet.")
-    
-    parser.add_argument('--lr', type=float, default=None, help = "Custom lr.")
-    parser.add_argument('--seed', type=float, default=None, help = "Custom seed.")
-    parser.add_argument('--encoder', type=str, default='resnet34', help = "Select the model encoder (only available for smp models). Default is resnet34.")
-    
-    
-    args = parser.parse_args()
-
-    return args
+from run_single import get_args
 
 
 def train(args):
+    args.double_model = args.single_model
+    del args.single_model
+    
     hparams = TrainingConfig(**vars(args))
 #                             , n_channels=24, mode='both')
 #                             , only_burnt=False)
     
-#     run = wandb.init(reinit=True, project="rescue", entity="smonaco", name=name, settings=wandb.Settings(start_method='fork'))
+    name = f'test_double-{args.double_model}_{args.key}_{args.seed}'
     
-    outdir = Path("../data/new_ds_logs/Propaper")
-#     outdir = outdir / wandb.run.name
+    outdir = Path(f"../data/new_ds_logs/Propaper/{name}")
+    
     outdir.mkdir(parents=True, exist_ok=True)
-    print(f'Best checkpoints saved in "{outdir}"')
     
+    if any(outdir.iterdir()):
+        print(f"Simulation already done ({name})")
+        return
+        
+    run = wandb.init(reinit=True, project="rescue_paper", entity="smonaco", name=name, tags=["crossval_double"], settings=wandb.Settings(start_method='fork'))
+    
+    print(f'Best checkpoints saved in "{outdir}"\n')
+
     earlystopping_1 = EarlyStopping(**hparams.earlystopping)
     earlystopping_2 = EarlyStopping(**hparams.earlystopping)
     
-    hparams["checkpoint"]["dirpath"] = outdir
+    hparams.checkpoint.dirpath = outdir
     checkpoint_1 = ModelCheckpoint(**hparams.checkpoint, filename='binary_model-{epoch}')
     checkpoint_2 = ModelCheckpoint(**hparams.checkpoint, filename='regression_model-epoch{epoch}')
     
-    name=None
+    if not torch.cuda.is_available():
+        hparams.trainer.gpus = 0
+        hparams.trainer.precision = 32
+        
     
     #### 1st network ###################
-    bin_model = Double_Satmodel(hparams, binary=True, discard_res=args.discard_results)
+    bin_model = Double_Satmodel(hparams, {'log_imgs': not args.discard_images, 'binary': True})
     
     logger = WandbLogger(save_dir=outdir, name=name)
     logger.log_hyperparams(hparams)
     logger.watch(bin_model, log='all', log_freq=1)
     
     trainer = pl.Trainer(
-        gpus=1 if torch.cuda.is_available() else 0,
+        **hparams.trainer,
         max_epochs=hparams.epochs,
-        # distributed_backend="ddp",  # DistributedDataParallel
-        log_every_n_steps=1,
-        progress_bar_refresh_rate=1,
-        benchmark=True,
+        logger=logger,
         callbacks=[checkpoint_1,
                    earlystopping_1
                    ],
-        precision=16 if torch.cuda.is_available() else 32,
-        gradient_clip_val=5.0,
-        num_sanity_val_steps=5,
-        sync_batchnorm=True,
-        logger=logger,
-        # resume_from_checkpoint="cyst_checkpoints/prova1/epoch=20-step=8546.ckpt"
     )
     trainer.fit(bin_model)
     
     #### 2nd network ###################
     regr_model = Double_Satmodel.load_from_checkpoint(checkpoint_1.best_model_path,
-                                               hparams=hparams, binary=False
+                                                      opt={'log_imgs': not args.discard_images, 'binary': False}
                                               )
     trainer = pl.Trainer(
-        gpus=1 if torch.cuda.is_available() else 0,
+        **hparams.trainer,
         max_epochs=hparams.epochs,
-        # distributed_backend="ddp",  # DistributedDataParallel
-        log_every_n_steps=1,
-        progress_bar_refresh_rate=1,
-        benchmark=True,
+        logger=logger,
         callbacks=[checkpoint_2,
                    earlystopping_2
                    ],
-        precision=16 if torch.cuda.is_available() else 32,
-        gradient_clip_val=5.0,
-        num_sanity_val_steps=5,
-        sync_batchnorm=True,
-        logger=logger,
-        # resume_from_checkpoint="cyst_checkpoints/prova1/epoch=20-step=8546.ckpt"
     )
     trainer.fit(regr_model)
+    
+    trainer.test()
     
     best = Path(checkpoint_2.best_model_path)
     best.rename(best.parent / f'{best.stem}_best{best.suffix}')

@@ -1,5 +1,5 @@
 ---
-key: blue
+key: purple
 binary: True
 batch_size: 8
 n_channels: 12
@@ -8,6 +8,7 @@ imagenet: False
 seed: 47
 patience: 5
 tol: 0.01
+fold_separation_csv: '../data/sentinel-hub/satellite_data.CSV'
 
 criterion: 
   name: nn.BCEWithLogitsLoss
@@ -52,6 +53,18 @@ validation_dict:
   yellow: fucsia
 
 # Training callbacks
+trainer:
+ gpus: 1
+ log_every_n_steps: 1
+ progress_bar_refresh_rate: 1
+ benchmark: True
+ precision: 16
+ gradient_clip_val: 5.0
+ num_sanity_val_steps: 3
+ sync_batchnorm: True
+# distributed_backend="ddp",  # DistributedDataParallel
+# resume_from_checkpoint="cyst_checkpoints/prova1/epoch=20-step=8546.ckpt"
+
 earlystopping:
   monitor: val_loss
   min_delta: 0.001

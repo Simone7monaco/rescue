@@ -18,6 +18,15 @@ from neural_net.segnet import SegNet, ConcatenatedSegNet
 from torch import nn, optim
 import pandas as pd
 
+validation_dict = {'purple': 'coral',
+                   'coral': 'cyan',
+                   'pink': 'coral',
+                   'grey': 'coral',
+                   'cyan': 'coral',
+                   'lime': 'coral',
+                   'magenta': 'coral'
+                  }
+
 def TrainingConfig(**args):
     name = args["single_model"] if args.get("single_model") else f"concat_{args['double_model']}"
     conf_file = [f for f in (Path.cwd() / "configs").iterdir() if name.lower() == f.stem.lower()][0]
@@ -26,7 +35,7 @@ def TrainingConfig(**args):
         hparams = ed(yaml.load(f, Loader=yaml.SafeLoader))
     
     for k in args:
-        if args[k] is None or str(k) in ['single_model', 'double_model', 'discard_results', 'encoder']: continue
+        if args[k] is None or str(k) in ['single_model', 'double_model', 'discard_images', 'encoder']: continue
         found = False
         if k in hparams.keys():
             hparams[k] = args[k]
@@ -41,14 +50,7 @@ def TrainingConfig(**args):
     
     hparams.groups = read_groups(hparams.fold_separation_csv)
     
-    hparams.validation_dict = {'purple': 'coral',
-                               'coral': 'cyan',
-                               'pink': 'coral',
-                               'grey': 'coral',
-                               'cyan': 'coral',
-                               'lime': 'coral',
-                               'magenta': 'coral'
-                              }
+    hparams.validation_dict = validation_dict
 #     {
 #         "blue": "fucsia",
 #         "brown": "fucsia",

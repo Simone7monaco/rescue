@@ -2,6 +2,7 @@ import os
 import ast
 import torch
 import numpy as np
+import pandas as pd
 from PIL import Image
 from typing import Union, Dict, List, Tuple
 
@@ -45,17 +46,18 @@ def max_min(t: torch.Tensor):
 
     
 class Satmodel(pl.LightningModule):
-    def __init__(self, hparams, binary=True, discard_res=False):
+    def __init__(self, hparams, opt):
         super().__init__()
-        self.discard_res = discard_res
+
+        for key in ["binary", "log_imgs", "log_res"]:
+            setattr(self, key, opt.get(key, True))
+            
         self.hparams = hparams
         self.save_hyperparameters()
-        self.key = hparams.key
         self.model = self.get_model()
         self.drop_last = False
                 
         self.criterion = eval_object(hparams.criterion)
-        self.binary = binary
 
         self.train_set = []
         self.validation_set = []
@@ -91,21 +93,23 @@ class Satmodel(pl.LightningModule):
         return self.optimizers
 
     def setup(self, stage=0):
+        print(self.logger.experiment.name, self.logger.name)
         ordered_keys = list(self.hparams.groups.keys())
 
-        validation_fold_name = self.hparams.validation_dict[self.key]
+        validation_fold_name = self.hparams.validation_dict[self.hparams.key]
         self.validation_set = self.hparams.groups[validation_fold_name]
-        print(f'Test set is {self.key}, validation set is {validation_fold_name}. All the rest is training set.')
+        print(f'Test set is {self.hparams.key}, validation set is {validation_fold_name}. All the rest is training set.')
 
         for grp in self.hparams.groups:
-            if grp == validation_fold_name or grp == self.key:
+            if grp == validation_fold_name or grp == self.hparams.key:
                 continue
             else:
                 self.train_set.extend(self.hparams.groups[grp])
 
-        self.test_set = self.hparams.groups[self.key]
-        print(f'Training set ({len(self.train_set)}): {str(self.train_set)}')
-        print(f'Validation set ({len(self.validation_set)}): {str(self.validation_set)}')
+        self.test_set = self.hparams.groups[self.hparams.key]
+        if self.binary:
+            print(f'Training set ({len(self.train_set)}): {str(self.train_set)}')
+            print(f'Validation set ({len(self.validation_set)}): {str(self.validation_set)}')
 
     def train_dataloader(self) -> DataLoader:
         train_dataset = SatelliteDataset(folder_list=self.train_set,
@@ -113,15 +117,14 @@ class Satmodel(pl.LightningModule):
                                          **self.hparams.dataset_specs)
         
         print(f'Train set dim: {len(train_dataset)}')
-        train_sampler = ShuffleSampler(train_dataset, self.hparams["seed"])
+        train_sampler = ShuffleSampler(train_dataset, self.hparams.seed)
 
         result = DataLoader(train_dataset, 
-                            batch_size=self.hparams["batch_size"], 
+                            batch_size=self.hparams.batch_size, 
                             sampler=train_sampler,
                             pin_memory=True,
                             drop_last=self.drop_last
                            )
-        print(f"Train dataloader = {len(result)}")
                 
         return result
 
@@ -131,32 +134,29 @@ class Satmodel(pl.LightningModule):
                                               **self.hparams.dataset_specs)
                 
         print(f'Validation set dim: {len(validation_dataset)}')
-        validation_sampler = ShuffleSampler(validation_dataset, self.hparams["seed"])
+        validation_sampler = ShuffleSampler(validation_dataset, self.hparams.seed)
 
         result = DataLoader(validation_dataset, 
-                            batch_size=self.hparams["batch_size"],
+                            batch_size=self.hparams.batch_size,
                             sampler=validation_sampler,
                             pin_memory=True,
                             drop_last=self.drop_last
                            )
-        print(f"Val dataloader = {len(result)}")
                 
         return result
-
-    # def test_dataloader(self):
-    #     test_dataset = SatelliteDataset(self.config.master_folder, self.config.mask_intervals, self.config.mask_one_hot, self.config.height,
-    #                                     self.config.width, self.config.product_list, self.config.mode, self.config.filter_validity_mask,
-    #                                     self.config.test_transform, self.config.process_dict, self.config.satellite_csv_path,
-    #                                     self.test_set,
-    #                                     None, self.config.mask_filtering, only_burnt=True,
-    #                                    )
-    #
-    #
-    #     print('Test set dim: %d' % len(test_dataset))
-    #     #         test_sampler = ShuffleSampler(test_dataset, config.seed)
-    #
-    #     return DataLoader(test_dataset, batch_size=self.config.batch_size, shuffle=False, drop_last=self.drop_last)
     
+    def test_dataloader(self):
+        test_dataset = SatelliteDataset(folder_list=self.test_set,
+                                              transform=self.hparams.test_transform,
+                                              **self.hparams.dataset_specs)
+                
+        result = DataLoader(test_dataset, 
+                            batch_size=self.hparams.batch_size,
+                            pin_memory=True,
+                            drop_last=False
+                           )                
+        return result
+
     def training_step(self, batch, batch_idx):
         images = batch["image"]
         masks = batch["mask"]
@@ -166,37 +166,43 @@ class Satmodel(pl.LightningModule):
         loss = self.criterion(logits, masks)
         
         if self.binary:
-            self.log('train_iou', binary_mean_iou(logits, masks))
+            if self.log_res: self.log('train_iou', binary_mean_iou(logits, masks))
         else:
-            sq_err, counters = compute_squared_errors(logits, masks, len(self.mask_intervals))
+            sq_err, counters = compute_squared_errors(logits, masks, len(self.hparams.dataset_specs.mask_intervals))
             mse = np.true_divide(sq_err, counters, np.full(sq_err.shape, np.nan), where=counters != 0)
-            self.log('train_rmse', np.sqrt(mse[-1]))
+            if self.log_res: self.log('train_rmse', np.sqrt(mse[-1]))
         
 
-        self.log('lr', self._get_current_lr())
-        self.log('loss', loss)
+        if self.log_res: self.log('lr', self._get_current_lr())
+        if self.log_res: self.log('loss', loss)
         return loss
 
-    def validation_step(self, batch, batch_id):
+    def validation_step(self, batch, batch_idx):
         images = batch["image"]
         masks = batch["mask"]
 
         logits = self.forward(images)
         if self.binary: masks = (masks > .5).type_as(masks)
-                                                     
+
         loss = self.criterion(logits, masks)
+        if self.log_res: self.log("val_loss", loss)
 #         val_iou = binary_mean_iou(logits, masks)
-        val_iou = binary_mean_iou(logits, masks)
+        if self.binary:
+            val_kpi = binary_mean_iou(logits, masks)
+            if self.log_res: self.log('val_iou', val_kpi)
+        else:
+            sq_err, counters = compute_squared_errors(logits, masks, len(self.hparams.dataset_specs.mask_intervals))
+            mse = np.true_divide(sq_err, counters, np.full(sq_err.shape, np.nan), where=counters != 0)
+            val_kpi = np.sqrt(mse[-1])
             
-        if not self.discard_res:
+            if self.log_res: self.log('val_rmse', val_kpi)
+            
+        if self.log_imgs and self.log_res:
             self.log_images(images, logits, masks)
 
-        self.log("val_loss", loss)
-        self.log("val_iou", val_iou)
-        
-        return {'val_iou': val_iou}
+        return {'val_loss': loss}
     
-    def log_images(self, images, logits, masks, log_dist=5):
+    def log_images(self, images, logits, masks, log_dist=3):
         if self.binary:
             class_labels = {0: "background", 1: "fire"}
 
@@ -207,10 +213,6 @@ class Satmodel(pl.LightningModule):
 
             logits_ = logits.cpu().detach().numpy().astype("float")
             masks_ = masks.cpu().detach().numpy().astype("float")
-#             result = np.zeros((mask.shape[0], mask.shape[1], len(self.mask_intervals)))
-#             for idx in class_labels.keys():
-#                 bin_mask = masks_ == float(idx)
-#                 result[bin_mask, idx] = 1
 
         if self.trainer.current_epoch % log_dist == 0:
             for i in range(images.shape[0]):
@@ -228,6 +230,38 @@ class Satmodel(pl.LightningModule):
                     },
                 )
                 self.logger.experiment.log({"val_images": [mask_img]}, commit=False)
+                
+    def test_step(self, batch, batch_idx):
+        images = batch["image"]
+        masks = batch["mask"]
+
+        bin_pred, regr_pred = self.model(images)
+        
+        bin_masks = (masks > .5).type_as(masks)
+        bin_pred = (torch.sigmoid(bin_pred) > 0.5).squeeze().cpu().detach().numpy().astype("float")
+        
+        tmp_sq_err, tmp_counters = compute_squared_errors(regr_pred, masks, len(self.hparams.dataset_specs.mask_intervals))
+        
+        severity_pred = regr_pred.clamp(0, max=(len(self.hparams.dataset_specs.mask_intervals) - 1)).round().squeeze().cpu().detach().numpy().astype("float")
+        
+        severity_pred *= (255.0/(len(self.hparams.dataset_specs.mask_intervals) - 1))
+        
+        out_path = self.hparams.checkpoint.dirpath / "predictions"
+        out_path.mkdir(parents=True, exist_ok=True)
+        for i in range(images.shape[0]):
+            Image.fromarray(255*bin_pred[i]).convert('RGB').save(out_path / f"bin_{batch_idx*self.hparams.batch_size + i}.png")
+            Image.fromarray(severity_pred[i]).convert('RGB').save(out_path / f"sev_{batch_idx*self.hparams.batch_size + i}.png")
+            
+        return [tmp_sq_err, tmp_counters]
+    
+    def test_epoch_end(self, outputs):
+        outputs = np.array(outputs)
+        sqe = outputs[:, 0, :].sum(axis=0)
+        counters = outputs[:, 1, :].sum(axis=0)
+        
+        mse = np.true_divide(sqe, counters, np.full(sqe.shape, np.nan), where=counters != 0)
+        pd.DataFrame(np.sqrt(mse), columns=[self.logger.experiment.name]).T.rename(columns={5: 'all'}).to_csv(self.hparams.checkpoint.dirpath / "rmse.csv")
+        
 
     def _get_current_lr(self):
         lr = [x["lr"] for x in self.optimizers[0].param_groups][0]  # type: ignore
@@ -235,27 +269,30 @@ class Satmodel(pl.LightningModule):
         if torch.cuda.is_available(): return torch.Tensor([lr])[0].cuda()
         return torch.Tensor([lr])[0]
 
-    def validation_epoch_end(self, outputs):
-        self.log("epoch", self.trainer.current_epoch)
-        avg_val_iou = find_average(outputs, "val_iou")
+#     def validation_epoch_end(self, outputs):
+#         self.log("epoch", self.trainer.current_epoch)
 
-        self.log("val_iou", avg_val_iou)
-        return
+#         if self.binary:
+#             avg_val_iou = find_average(outputs, "val_iou")
+#             self.log("val_iou", avg_val_iou)
+#         else:
+#             avg_val_rmse = find_average(outputs, "val_rmse")
+#             self.log("val_rmse", avg_val_rmse)
+#         return
 
 class Double_Satmodel(Satmodel):
-    def __init__(self, hparams, binary=False, discard_res=False):
-        super().__init__(hparams, binary=binary, discard_res=discard_res)
+    def __init__(self, hparams, opt):
+        super().__init__(hparams, opt)
         
         if self.binary:
-            print(f'    Iteration step 1/2 - Binary network training...  (test on {self.key} fold)\n')
+            print(f'\n    Iteration step 1/2 - Binary network training...  (test on {self.hparams.key} fold)\n')
         else:
-            print(f'    Iteration step 2/2 - Regression network training...  (test on {self.key} fold)\n')
+            print(f'\n    Iteration step 2/2 - Regression network training...  (test on {self.hparams.key} fold)\n')
             self.criterion = eval_object(hparams.regr_criterion)
         self.set_model()
     
     def set_model(self):
         if self.binary:
-            print("\n### Initializing model weights ###\n")
             self.model.apply(initialize_weight)
             self.model.unfreeze_binary_unet()
             self.model.freeze_regression_unet()
@@ -339,7 +376,7 @@ class Double_Satmodel(Satmodel):
 #         masks_ = (masks > 0.5).cpu().detach().numpy().astype("float")
             
 #         class_labels = {0: "background", 1: "fire"}
-#         if not self.discard_res:
+#         if not self.log_imgs:
 #             if self.trainer.current_epoch % 5 == 0:
 #                 for i in range(images.shape[0]):
 #                     mask_img = wandb.Image(
