@@ -10,7 +10,7 @@ def main():
     args = get_args()
     for k in validation_dict.keys():
         for seed in [1,2,3]:
-            for model in ['Unet']:
+            for model in ['unet', 'segnet', 'nestedunet', 'attentionunet']:
                 args.model_name = model
                 args.seed = seed
                 args.key = k
