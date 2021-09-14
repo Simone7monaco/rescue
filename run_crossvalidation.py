@@ -7,6 +7,8 @@ import sys
 losses = ['bcemse', 'dicemse', 'bdmse', 'bsmse', 'siousiou', 'sioumse', 'bcef1mse']
 
 def main():
+    ls = int(sys.argv[1])
+    del sys.argv[1]
     args = get_args()
     for k in validation_dict.keys():
         for seed in [1,2,3]:
@@ -14,7 +16,7 @@ def main():
                 args.model_name = model
                 args.seed = seed
                 args.key = k
-                args.losses = losses[sys.argv[1]]
+                args.losses = losses[ls]
                 double_train(args)
                 print("\n\n\n")
             
