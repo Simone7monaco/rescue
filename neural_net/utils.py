@@ -14,10 +14,13 @@ import wandb
 import argparse
 
 from torch import nn, optim
-from neural_net.unet import UNet, ConcatenatedUNet
+
+from neural_net.unet import UNet
 from neural_net.pspnet import PSPNet
-from neural_net.nested_unet import NestedUNet, ConcatenatedNestedUNet
-from neural_net.segnet import SegNet, ConcatenatedSegNet
+from neural_net.nested_unet import NestedUNet
+from neural_net.segnet import SegNet
+from neural_net.attention_unet import AttentionUnet
+
 from neural_net.loss import IoULoss, FuzzyIoULoss, GDiceLossV2, ComboLoss, softIoULoss, F1MSE
 
 
@@ -40,6 +43,8 @@ def eval_object(hdict, **default_kwargs):
         kwargs.setdefault(name, value)
         
     return eval(ob_type)(**kwargs)
+
+from neural_net.concat_model import ConcatenatedModel
 
 
 def set_seed(seed):
@@ -363,7 +368,7 @@ def find_average(outputs: List, name: str) -> torch.Tensor:
     return torch.cat([x[name] for x in outputs]).mean()
 
 
-def binary_mean_iou(outputs: torch.Tensor, labels: torch.Tensor, SMOOTH=1e-6):
+def binary_mean_iou(outputs: torch.Tensor, labels: torch.Tensor, SMOOTH=1e-6, average=True):
     outputs = outputs.squeeze(1)
     labels = labels.squeeze(1)
         
@@ -374,11 +379,12 @@ def binary_mean_iou(outputs: torch.Tensor, labels: torch.Tensor, SMOOTH=1e-6):
     union = (outputs | labels).float().sum((1, 2))
 #     intersection = (outputs & labels).float().sum()
 #     union = (outputs | labels).float().sum()
+    if average:
+        iou = (intersection + SMOOTH) / (union + SMOOTH)  # We smooth our devision to avoid 0/0
+        iou = iou.mean()
+        return iou
     
-    iou = (intersection + SMOOTH) / (union + SMOOTH)  # We smooth our devision to avoid 0/0
-    
-    iou = iou.mean()
-    return iou
+    return intersection, union
 
 
 def class_IU(gt, prediction, n_classes=5, get_tensor=False):

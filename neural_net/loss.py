@@ -346,8 +346,8 @@ class FuzzyIoULoss(nn.Module):
 class ComboLoss(nn.Module):
     def __init__(self, loss1=GDiceLossV2(), loss2=nn.BCEWithLogitsLoss()):
         super(ComboLoss, self).__init__()
-        self.loss1=loss1
-        self.loss2=loss2
+        self.loss1=eval(loss1)() if type(loss1) == str else loss1
+        self.loss2=eval(loss2)() if type(loss2) == str else loss2
 
     def forward(self, inputs, targets, alpha=.5):
         combo =  alpha * self.loss1(inputs, targets) + (1 - alpha) * self.loss2(inputs, targets)

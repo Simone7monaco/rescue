@@ -1,7 +1,7 @@
 ---
 key: purple
 binary: True
-batch_size: 8
+batch_size: 16
 n_channels: 12
 epochs: 50
 imagenet: False
@@ -12,12 +12,15 @@ fold_separation_csv: '../data/sentinel-hub/satellite_data.CSV'
 
 criterion: 
   name: nn.BCEWithLogitsLoss
+  
+regr_criterion:
+  name: nn.MSELoss
 
 model:
   name: AttentionUnet
   encoder_name: resnet34
   classes: 1
-  in_channels: 12
+  n_channels: 12
   att_layers: [1, 2, 3, 4]
 
 optimizer:

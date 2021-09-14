@@ -12,6 +12,9 @@ fold_separation_csv: '../data/sentinel-hub/satellite_data.CSV'
 
 criterion: 
   name: nn.BCEWithLogitsLoss
+  
+regr_criterion:
+  name: nn.MSELoss
 
 model:
   name: UNet

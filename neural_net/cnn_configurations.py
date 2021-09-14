@@ -1,5 +1,6 @@
 import os
 import yaml
+import re
 from pathlib import Path
 from easydict import EasyDict as ed
 
@@ -28,14 +29,29 @@ validation_dict = {'purple': 'coral',
                   }
 
 def TrainingConfig(**args):
-    name = args["single_model"] if args.get("single_model") else f"concat_{args['double_model']}"
-    conf_file = [f for f in (Path.cwd() / "configs").iterdir() if name.lower() == f.stem.lower()][0]
+    with open(Path.cwd() / "configs/models.yaml", "r") as f:
+        models = ed(yaml.load(f, Loader=yaml.SafeLoader))
+        
+    with open(Path.cwd() / "configs/losses.yaml", "r") as f:
+        losses = ed(yaml.load(f, Loader=yaml.SafeLoader))
     
-    with open(conf_file, "r") as f:
-        hparams = ed(yaml.load(f, Loader=yaml.SafeLoader))
+    mod_name = [f for f in models.keys() if args["model_name"].lower() == f.lower()]
     
+    if (Path.cwd() / f"configs/{mod_name}.yaml").exists():
+        with open(Path.cwd() / f"configs/{mod_name}.yaml", "r") as f:
+            hparams = ed(yaml.load(f, Loader=yaml.SafeLoader))
+    else:
+        with open(Path.cwd() / "configs/UNet.yaml", "r") as f:
+            hparams = ed(yaml.load(f, Loader=yaml.SafeLoader))
+            hparams.model = models[mod_name[0]]
+            
+    if args["losses"]:
+        loss_key = next((key for key in losses.config_names.keys() if args["losses"] in re.sub('[^A-Za-z0-9]+', '', key).lower()))
+        hparams.criterion = losses.classification[losses.config_names[loss_key].first]
+        hparams.regr_criterion = losses.regression[losses.config_names[loss_key].second]
+        
     for k in args:
-        if args[k] is None or str(k) in ['single_model', 'double_model', 'discard_images', 'encoder']: continue
+        if args[k] is None or str(k) in ['model_name', 'discard_images', 'encoder', 'losses']: continue
         found = False
         if k in hparams.keys():
             hparams[k] = args[k]
@@ -45,6 +61,8 @@ def TrainingConfig(**args):
                 hparams[k_n][k] = args[k]
                 found = True
         if not found: print(f"\nParameter `{k}` not found.\n")
+    
+    print(f"Selecting model {mod_name[0]} as backbone")
     
     hparams.dataset_specs.mask_intervals = [(0, 36), (37, 96), (97, 160), (161, 224), (225, 255)]
     

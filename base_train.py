@@ -37,12 +37,12 @@ def c_binary_mean_iou(logits: torch.Tensor, targets: torch.Tensor, EPSILON = 1e-
 
     return result
 
-def max_min(t: torch.Tensor):
-    t = t.view(t.size(0), -1)
-    for i in range(t.shape[0]):
-        t[i,:] = (t[i,:] - t[i,:].min()) / (t[i,:].max() - t[i,:].min())
+# def max_min(t: torch.Tensor):
+#     t = t.view(t.size(0), -1)
+#     for i in range(t.shape[0]):
+#         t[i,:] = (t[i,:] - t[i,:].min()) / (t[i,:].max() - t[i,:].min())
     
-    return t
+#     return t
 
     
 class Satmodel(pl.LightningModule):
@@ -56,8 +56,11 @@ class Satmodel(pl.LightningModule):
         self.save_hyperparameters()
         self.model = self.get_model()
         self.drop_last = False
-                
-        self.criterion = eval_object(hparams.criterion)
+        
+        if self.binary:
+            self.criterion = eval_object(hparams.criterion)
+        else:
+            self.criterion = eval_object(hparams.regr_criterion)
 
         self.train_set = []
         self.validation_set = []
@@ -93,7 +96,6 @@ class Satmodel(pl.LightningModule):
         return self.optimizers
 
     def setup(self, stage=0):
-        print(self.logger.experiment.name, self.logger.name)
         ordered_keys = list(self.hparams.groups.keys())
 
         validation_fold_name = self.hparams.validation_dict[self.hparams.key]
@@ -107,16 +109,15 @@ class Satmodel(pl.LightningModule):
                 self.train_set.extend(self.hparams.groups[grp])
 
         self.test_set = self.hparams.groups[self.hparams.key]
-        if self.binary:
-            print(f'Training set ({len(self.train_set)}): {str(self.train_set)}')
-            print(f'Validation set ({len(self.validation_set)}): {str(self.validation_set)}')
+#         if self.binary:
+#             print(f'Training set ({len(self.train_set)}): {str(self.train_set)}')
+#             print(f'Validation set ({len(self.validation_set)}): {str(self.validation_set)}')
 
     def train_dataloader(self) -> DataLoader:
         train_dataset = SatelliteDataset(folder_list=self.train_set,
                                          transform=self.hparams.train_transform,
                                          **self.hparams.dataset_specs)
         
-        print(f'Train set dim: {len(train_dataset)}')
         train_sampler = ShuffleSampler(train_dataset, self.hparams.seed)
 
         result = DataLoader(train_dataset, 
@@ -125,6 +126,7 @@ class Satmodel(pl.LightningModule):
                             pin_memory=True,
                             drop_last=self.drop_last
                            )
+        print(f'Train set dim: {len(train_dataset)} ({len(result)} batches)')
                 
         return result
 
@@ -133,7 +135,6 @@ class Satmodel(pl.LightningModule):
                                               transform=self.hparams.test_transform,
                                               **self.hparams.dataset_specs)
                 
-        print(f'Validation set dim: {len(validation_dataset)}')
         validation_sampler = ShuffleSampler(validation_dataset, self.hparams.seed)
 
         result = DataLoader(validation_dataset, 
@@ -142,6 +143,7 @@ class Satmodel(pl.LightningModule):
                             pin_memory=True,
                             drop_last=self.drop_last
                            )
+        print(f'Validation set dim: {len(validation_dataset)} ({len(result)} batches)')
                 
         return result
     
@@ -154,7 +156,8 @@ class Satmodel(pl.LightningModule):
                             batch_size=self.hparams.batch_size,
                             pin_memory=True,
                             drop_last=False
-                           )                
+                           )   
+        print(f'Validation set dim: {len(test_dataset)} ({len(result)} batches)')
         return result
 
     def training_step(self, batch, batch_idx):
@@ -237,8 +240,8 @@ class Satmodel(pl.LightningModule):
 
         bin_pred, regr_pred = self.model(images)
         
-        bin_masks = (masks > .5).type_as(masks)
-        bin_pred = (torch.sigmoid(bin_pred) > 0.5).squeeze().cpu().detach().numpy().astype("float")
+        intersection, union = binary_mean_iou(masks.cpu().detach().numpy(), torch.sigmoid(bin_pred).cpu().detach().numpy(), average=False)
+        
         
         tmp_sq_err, tmp_counters = compute_squared_errors(regr_pred, masks, len(self.hparams.dataset_specs.mask_intervals))
         
@@ -252,12 +255,19 @@ class Satmodel(pl.LightningModule):
             Image.fromarray(255*bin_pred[i]).convert('RGB').save(out_path / f"bin_{batch_idx*self.hparams.batch_size + i}.png")
             Image.fromarray(severity_pred[i]).convert('RGB').save(out_path / f"sev_{batch_idx*self.hparams.batch_size + i}.png")
             
-        return [tmp_sq_err, tmp_counters]
+        return {'regr': [tmp_sq_err, tmp_counters], 'binary': [intersection, union]}
     
     def test_epoch_end(self, outputs):
-        outputs = np.array(outputs)
-        sqe = outputs[:, 0, :].sum(axis=0)
-        counters = outputs[:, 1, :].sum(axis=0)
+        r_outputs = np.array([out['regr'] for out in outputs])
+        bin_outputs = np.array([out['bin'] for out in outputs])
+        
+        sqe = r_outputs[:, 0, :].sum(axis=0)
+        counters = r_outputs[:, 1, :].sum(axis=0)
+        
+        intersections = bin_outputs[:, 0, :].flatten()
+        unions = bin_outputs[:, 1, :].flatten()
+        ious = (intersections + 1e-6) / (unions + 1e-6)
+        pd.DataFrame([intersections, unions, ious], index=['intersection', 'union', 'iou']).T.to_csv(self.hparams.checkpoint.dirpath / "bin_iou.csv")
         
         mse = np.true_divide(sqe, counters, np.full(sqe.shape, np.nan), where=counters != 0)
         pd.DataFrame(np.sqrt(mse), columns=[self.logger.experiment.name]).T.rename(columns={5: 'all'}).to_csv(self.hparams.checkpoint.dirpath / "rmse.csv")
@@ -288,12 +298,13 @@ class Double_Satmodel(Satmodel):
             print(f'\n    Iteration step 1/2 - Binary network training...  (test on {self.hparams.key} fold)\n')
         else:
             print(f'\n    Iteration step 2/2 - Regression network training...  (test on {self.hparams.key} fold)\n')
-            self.criterion = eval_object(hparams.regr_criterion)
+            
         self.set_model()
     
     def set_model(self):
+        self.hparams.backbone = self.model.backbone
         if self.binary:
-            self.model.apply(initialize_weight)
+            if type(self.model.binary_unet) == UNet: self.model.apply(initialize_weight)
             self.model.unfreeze_binary_unet()
             self.model.freeze_regression_unet()
         else:
@@ -330,93 +341,24 @@ class Double_Satmodel(Satmodel):
             return self.optimizers, [scheduler]
         return self.optimizers
     
-#     def training_step(self, batch, batch_idx):
-#         images = batch["image"]
-#         masks = batch["mask"]
-        
-#         if self.binary:
-#             masks = (masks > .5).type_as(masks)
-            
-#             self.model.regression_unet.eval()
-#             self.model.freeze_regression_unet()
-#             logits = self.forward(images)[0]
-#         else:
-#             self.model.binary_unet.eval()
-#             self.model.freeze_binary_unet()
-#             logits = self.forward(images)[1]
-        
-#         loss = self.criterion(logits, masks)
-#         train_iou = binary_mean_iou(logits, masks)
-
-#         self.log('lr', self._get_current_lr())
-#         self.log('loss', loss)
-#         self.log('train_iou', train_iou)
-#         return loss
-
-#     def validation_step(self, batch, batch_id):
-#         images = batch["image"]
-#         masks = batch["mask"]
-        
-#         if self.binary:
-#             masks = (masks > .5).type_as(masks)
-            
-#             self.model.regression_unet.eval()
-#             self.model.freeze_regression_unet()
-#             logits = self.forward(images)[0]
-#         else:
-#             self.model.binary_unet.eval()
-#             self.model.freeze_binary_unet()
-#             logits = self.forward(images)[1]
-                                                             
-#         loss = self.criterion(logits, masks)
-# #         val_iou = binary_mean_iou(logits, masks)
-#         val_iou = binary_mean_iou(logits, masks)
-        
-#         logits_ = (torch.sigmoid(logits) > 0.5).cpu().detach().numpy().astype("float")
-#         masks_ = (masks > 0.5).cpu().detach().numpy().astype("float")
-            
-#         class_labels = {0: "background", 1: "fire"}
-#         if not self.log_imgs:
-#             if self.trainer.current_epoch % 5 == 0:
-#                 for i in range(images.shape[0]):
-#                     mask_img = wandb.Image(
-#                         images[i, [3,2,1], :, :]*2.5,
-#                         masks={
-#                             "predictions": {
-#                                 "mask_data": logits_[i, 0, :, :],
-#                                 "class_labels": class_labels,
-#                             },
-#                             "groud_truth": {
-#                                 "mask_data": masks_[i, 0, :, :],
-#                                 "class_labels": class_labels,
-#                             },
-#                         },
-#                     )
-#                     self.logger.experiment.log({"val_images": [mask_img]}, commit=False)
 
 
-#         self.log("val_loss", loss)
-#         self.log("val_iou", val_iou)
-        
-#         return {'val_iou': val_iou}
+# def compute_train_test_folders(master_folder, test_prefix, ignore_list=None):
+#     test_set = set()
+#     train_set = set()
 
+#     # creates a 'test_set' and 'train_set' lists with the folder names
+#     for dirname in os.listdir(master_folder):
+#         is_test = False
+#         if ignore_list is not None and dirname in ignore_list:
+#             continue
+#         for prefix in test_prefix:
+#             if dirname.startswith(prefix):
+#                 is_test = True
+#                 test_set.add(dirname)
+#                 break
 
-def compute_train_test_folders(master_folder, test_prefix, ignore_list=None):
-    test_set = set()
-    train_set = set()
+#         if not is_test:
+#             train_set.add(dirname)
 
-    # creates a 'test_set' and 'train_set' lists with the folder names
-    for dirname in os.listdir(master_folder):
-        is_test = False
-        if ignore_list is not None and dirname in ignore_list:
-            continue
-        for prefix in test_prefix:
-            if dirname.startswith(prefix):
-                is_test = True
-                test_set.add(dirname)
-                break
-
-        if not is_test:
-            train_set.add(dirname)
-
-    return train_set, test_set
+#     return train_set, test_set

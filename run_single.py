@@ -17,13 +17,15 @@ from pytorch_lightning.loggers import WandbLogger
 
 from base_train import Satmodel
 import neural_net
+import matplotlib.pyplot as plt
 
 
 def get_args():
     parser = argparse.ArgumentParser(description='Training of the U-Net usign Pytorch Lightining framework.')
     parser.add_argument('--discard_images', nargs='?', default=False, const=True, help = "Prevent Wandb to save validation result for each step.")
     parser.add_argument('-k', '--key', type=str, default='purple', help = "Test set fold key. Default is 'blue'.")
-    parser.add_argument('-m', '--single_model', type=str, default='unet', help = "Select the model (unet, canet or attnet available). Default is unet.")
+    parser.add_argument('-m', '--model_name', type=str, default='unet', help = "Select the model (unet, canet or attnet available). Default is unet.")
+    parser.add_argument('--losses', type=str, default=None, help = "Select the configuration name of the loss function(s). The name must be written in lower casses without special characters.")
     
     parser.add_argument('--lr', type=float, default=None, help = "Custom lr.")
     parser.add_argument('--seed', type=float, default=7, help = "Custom seed.")
@@ -43,7 +45,7 @@ def train(args):
         hparams.trainer.gpus = 0
         hparams.trainer.precision = 32
     
-    name = f'test_{args.double_model}_{args.key}_{args.seed}'
+    name = f'test_{args.model_name}_{args.key}_{args.seed}'
     run = wandb.init(reinit=True, project="rescue_paper", entity="smonaco", name=name, settings=wandb.Settings(start_method='fork'))
     
     outdir = Path("../data/new_ds_logs/Propaper")
@@ -64,11 +66,28 @@ def train(args):
     trainer = pl.Trainer(
         **hparams.trainer,
         max_epochs=hparams.epochs,
+        auto_scale_batch_size='binsearch',
         logger=logger,
         callbacks=[checkpoint_callback,
                    earlystopping_callback
                    ],
     )
+    get_lr = False
+    
+    trainer.tune(pl_model)
+    
+    if get_lr:
+        lr_finder = trainer.tuner.lr_find(pl_model, 
+                            min_lr=0.00005, 
+                            max_lr=0.001,
+                            mode='linear')
+
+        # Plots the optimal learning rate
+        fig = lr_finder.plot(suggest=True)
+
+        fig.imsave('best_lr.png')
+        wandb.log({"best_lr": fig})
+        hparams.optimizer.lr = lr_finder.suggestion()
 
     trainer.fit(pl_model)
     
