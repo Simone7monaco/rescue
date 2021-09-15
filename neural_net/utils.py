@@ -375,8 +375,8 @@ def binary_mean_iou(outputs: torch.Tensor, labels: torch.Tensor, SMOOTH=1e-6, av
     outputs = (outputs > .5)
     labels = (labels > .5)
     
-    intersection = (outputs & labels).float().sum((1, 2))
-    union = (outputs | labels).float().sum((1, 2))
+    intersection = (outputs & labels).sum((1, 2))
+    union = (outputs | labels).sum((1, 2))
 #     intersection = (outputs & labels).float().sum()
 #     union = (outputs | labels).float().sum()
     if average:
