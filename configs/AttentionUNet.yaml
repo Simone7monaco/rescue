@@ -18,6 +18,7 @@ regr_criterion:
 
 model:
   name: AttentionUnet
+  encoder_weights: imagenet
   encoder_name: resnet34
   classes: 1
   n_channels: 12

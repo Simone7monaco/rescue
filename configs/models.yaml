@@ -18,6 +18,7 @@ NestedUNet:
 AttentionUnet:
   name: AttentionUnet
   encoder_name: resnet34
+  encoder_weights: imagenet
   classes: 1
   n_channels: 12
   att_layers: [1, 2, 3, 4]

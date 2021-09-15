@@ -79,7 +79,7 @@ def TrainingConfig(**args):
 #         "yellow": "fucsia",
 #     }
     
-    if hparams.imagenet:
+    if "imagenet" in hparams.model.values():
         mn = [1 for i in range(hparams.model.n_channels)]
         std = [1 for i in range(hparams.model.n_channels)]
         mn[1:4] = (0.406, 0.456, 0.485)  # rgb are 3,2,1
