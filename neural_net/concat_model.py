@@ -28,7 +28,7 @@ class ConcatenatedModel(nn.Module):
         return binary_out, regr_output
     
     def get_attention_maps(self, x):
-        if hasattr(self.binary_unet, get_attention_maps):
+        if hasattr(self.binary_unet, "get_attention_maps"):
             bin_attentions = self.binary_unet.get_attention_maps(x)
             regr_attentions = self.regression_unet.get_attention_maps(x)
         return bin_attentions, regr_attentions

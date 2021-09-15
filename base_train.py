@@ -266,8 +266,9 @@ class Satmodel(pl.LightningModule):
         sqe = r_outputs[:, 0, :].sum(axis=0)
         counters = r_outputs[:, 1, :].sum(axis=0)
         
-        intersections = bin_outputs[:, 0, :].flatten()
-        unions = bin_outputs[:, 1, :].flatten()
+        print(bin_outputs.shape, bin_outputs[0].shape)
+        intersections = bin_outputs[:, 0].flatten()
+        unions = bin_outputs[:, 1].flatten()
         ious = (intersections + 1e-6) / (unions + 1e-6)
         pd.DataFrame([intersections, unions, ious], index=['intersection', 'union', 'iou']).T.to_csv(self.hparams.checkpoint.dirpath / "bin_iou.csv")
         
