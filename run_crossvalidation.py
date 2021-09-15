@@ -7,16 +7,21 @@ import sys
 losses = ['bcemse', 'dicemse', 'bdmse', 'bsmse', 'siousiou', 'sioumse', 'bcef1mse']
 
 def main():
-    ls = int(sys.argv[1])
-    del sys.argv[1]
+    if len(sys.argv) > 1:
+        ls = int(sys.argv[1]) 
+        del sys.argv[1]
+    else:
+        ls = None
+
     args = get_args()
     for k in validation_dict.keys():
         for seed in [1,2,3]:
             for model in ['unet', 'segnet', 'nestedunet', 'attentionunet']:
+#             for model in ['attentionunet']:
                 args.model_name = model
                 args.seed = seed
                 args.key = k
-                args.losses = losses[ls]
+                args.losses = losses[ls] if ls else None
                 double_train(args)
                 print("\n\n\n")
             
