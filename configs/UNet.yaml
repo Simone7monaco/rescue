@@ -1,9 +1,9 @@
 ---
 key: purple
 binary: True
-batch_size: 8
+batch_size: 16
 n_channels: 12
-epochs: 50
+epochs: 2
 imagenet: False
 seed: 47
 patience: 5

@@ -26,6 +26,9 @@ class ConcatenatedModel(nn.Module):
         regr_input = x * multiplier
         regr_output = self.regression_unet(regr_input)
         return binary_out, regr_output
+    
+    def get_attention_maps(self, x):
+        if not hasattr(self.binary_unet, get_attention_maps)
 
     @classmethod
     def _set_model_grad_flag(cls, model, flag: bool):
