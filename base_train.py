@@ -257,7 +257,7 @@ class Satmodel(pl.LightningModule):
 #             Image.fromarray(255*bin_pred[i].astype(float)).convert('RGB').save(out_path / f"bin_{batch_idx*self.hparams.batch_size + i}.png")
             Image.fromarray(severity_pred[i]).convert('RGB').save(out_path / f"sev_{batch_idx*self.hparams.batch_size + i}.png")
             
-        return {'regr': [tmp_sq_err, tmp_counters], 'binary': [intersection, union]}
+        return {'regr': [tmp_sq_err, tmp_counters], 'bin': [intersection, union]}
     
     def test_epoch_end(self, outputs):
         r_outputs = np.array([out['regr'] for out in outputs])
