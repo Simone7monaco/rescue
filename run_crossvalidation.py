@@ -22,6 +22,7 @@ def main():
                 args.seed = seed
                 args.key = k
                 args.losses = losses[ls] if ls is not None else None
+#                 args.losses = 'bcemse'
                 print(f'>> run_double {" ".join([f"--{k}={v}" for k, v in vars(args).items()])}\n')
                 double_train(args)
                 print("\n\n\n")
