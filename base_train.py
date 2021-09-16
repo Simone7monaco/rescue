@@ -240,7 +240,7 @@ class Satmodel(pl.LightningModule):
 
         bin_pred, regr_pred = self.model(images)
         
-        bin_pred = torch.sigmoid(bin_pred).cpu().detach().numpy() > 0.5
+        bin_pred = torch.sigmoid(bin_pred).squeeze().cpu().detach().numpy() > 0.5
         
         intersection, union = binary_mean_iou(masks.cpu().detach().numpy(), bin_pred, average=False)
         
@@ -254,7 +254,7 @@ class Satmodel(pl.LightningModule):
         out_path = self.hparams.checkpoint.dirpath / "predictions"
         out_path.mkdir(parents=True, exist_ok=True)
         for i in range(images.shape[0]):
-#             Image.fromarray(255*bin_pred[i].astype(float)).convert('RGB').save(out_path / f"bin_{batch_idx*self.hparams.batch_size + i}.png")
+            Image.fromarray(255*bin_pred[i].astype(float)).convert('RGB').save(out_path / f"bin_{batch_idx*self.hparams.batch_size + i}.png")
             Image.fromarray(severity_pred[i]).convert('RGB').save(out_path / f"sev_{batch_idx*self.hparams.batch_size + i}.png")
             
         return {'regr': [tmp_sq_err, tmp_counters], 'bin': [intersection, union]}
