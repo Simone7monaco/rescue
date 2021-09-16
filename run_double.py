@@ -27,6 +27,12 @@ def train(args):
 #                             , n_channels=24, mode='both')
 #                             , only_burnt=False)
         
+    if "SLURM_JOB_ID" in os.environ:
+        print("Running in Slurm")
+        hparams["job_id"] = os.environ["SLURM_JOB_ID"]
+        hparams.num_workers = 4
+        hparams.batch_size = 16
+        
     hparams.model = {
         "name": "ConcatenatedModel",
         "model_dict": hparams.model

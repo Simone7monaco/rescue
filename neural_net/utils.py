@@ -369,8 +369,9 @@ def find_average(outputs: List, name: str) -> torch.Tensor:
 
 
 def binary_mean_iou(outputs: torch.Tensor, labels: torch.Tensor, SMOOTH=1e-6, average=True):
-    outputs = outputs.squeeze(1)
-    labels = labels.squeeze(1)
+    if outputs.shape[1] == 1:
+        outputs = outputs.squeeze(1)
+        labels = labels.squeeze(1)
         
     outputs = (outputs > .5)
     labels = (labels > .5)
