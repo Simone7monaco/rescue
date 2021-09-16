@@ -122,7 +122,7 @@ class Satmodel(pl.LightningModule):
 
         result = DataLoader(train_dataset, 
                             batch_size=self.hparams.batch_size,
-                            num_workers=hparams.num_workers,
+                            num_workers=self.hparams.num_workers,
                             sampler=train_sampler,
                             pin_memory=True,
                             drop_last=self.drop_last
@@ -140,7 +140,7 @@ class Satmodel(pl.LightningModule):
 
         result = DataLoader(validation_dataset, 
                             batch_size=self.hparams.batch_size,
-                            num_workers=hparams.num_workers,
+                            num_workers=self.hparams.num_workers,
                             sampler=validation_sampler,
                             pin_memory=True,
                             drop_last=self.drop_last
@@ -156,7 +156,7 @@ class Satmodel(pl.LightningModule):
                 
         result = DataLoader(test_dataset, 
                             batch_size=self.hparams.batch_size,
-                            num_workers=hparams.num_workers,
+                            num_workers=self.hparams.num_workers,
                             pin_memory=True,
                             drop_last=False
                            )   
