@@ -21,7 +21,8 @@ def main():
                 args.model_name = model
                 args.seed = seed
                 args.key = k
-                args.losses = losses[ls] if ls else None
+                args.losses = losses[ls] if ls is not None else None
+                print(f'>> run_double {" ".join([f"--{k}={v}" for k, v in vars(args).items()])}\n')
                 double_train(args)
                 print("\n\n\n")
             
