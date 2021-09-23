@@ -80,4 +80,4 @@ checkpoint:
   monitor: val_loss
   verbose: True
   mode: min
-  save_top_k: 2
+  save_top_k: 1
