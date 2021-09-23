@@ -37,15 +37,15 @@ def train(args):
         "name": "ConcatenatedModel",
         "model_dict": hparams.model
     }
-    name = f'test_double-{args.model_name}_{args.key}'
-    if args.losses: name += f"_{args.losses}"
+    name = f'test_double-{args.model_name}_{args.key}'.lower()
+    if args.losses: name += f"_{args.losses.lower()}"
     if args.seed is not None: name += f"_{args.seed}"
     
-    outdir = Path(f"../data/new_ds_logs/Propaper/{name}")
+    outdir = Path(f"../data/new_ds_logs/Propaper/{name}")#_imgnotnorm")
     
     outdir.mkdir(parents=True, exist_ok=True)
     
-    if any(outdir.glob('*.csv')):
+    if (outdir / 'bin_kpi.csv').exists() and (outdir / 'regr_kpi.csv').exists():
         print(f"Simulation already done ({name})")
         return
         
@@ -110,7 +110,7 @@ def train(args):
         checkpoint_2.best_model_path = str(best_path)
     else:
         print("> Resuming weights for evaluation.")
-        regr_model = Double_Satmodel.load_from_checkpoint(str(next(outdir.glob("reg*best*"))))
+        regr_model = Double_Satmodel.load_from_checkpoint(str(next(outdir.glob("reg*best*"))), hparams=hparams)
         trainer = pl.Trainer(**hparams.trainer, logger=logger).test(regr_model)
     
     wandb.finish()

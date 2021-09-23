@@ -1,11 +1,10 @@
 ---
 num_workers: 0
 key: purple
-binary: True
 batch_size: 8
 n_channels: 12
 epochs: 50
-imagenet: False
+binary: True
 seed: 47
 patience: 5
 tol: 0.01
@@ -80,4 +79,4 @@ checkpoint:
   monitor: val_loss
   verbose: True
   mode: min
-  save_top_k: 2
+  save_top_k: 1

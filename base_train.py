@@ -25,7 +25,7 @@ from neural_net.canet_parts.networks.network import Comprehensive_Atten_Unet
 
 import pytorch_lightning as pl
 
-from config import *
+# from config import *
 import wandb
 
 def c_binary_mean_iou(logits: torch.Tensor, targets: torch.Tensor, EPSILON = 1e-15) -> torch.Tensor:
@@ -36,14 +36,6 @@ def c_binary_mean_iou(logits: torch.Tensor, targets: torch.Tensor, EPSILON = 1e-
     result = (intersection + EPSILON) / (union + EPSILON)
 
     return result
-
-# def max_min(t: torch.Tensor):
-#     t = t.view(t.size(0), -1)
-#     for i in range(t.shape[0]):
-#         t[i,:] = (t[i,:] - t[i,:].min()) / (t[i,:].max() - t[i,:].min())
-    
-#     return t
-
     
 class Satmodel(pl.LightningModule):
     def __init__(self, hparams, opt):
@@ -236,47 +228,6 @@ class Satmodel(pl.LightningModule):
                     },
                 )
                 self.logger.experiment.log({"val_images": [mask_img]}, commit=False)
-                
-    def test_step(self, batch, batch_idx):
-        images = batch["image"]
-        masks = batch["mask"]
-
-        bin_pred, regr_pred = self.model(images)
-        
-        bin_pred = torch.sigmoid(bin_pred).squeeze().cpu().detach().numpy() > 0.5
-        
-        intersection, union = binary_mean_iou(masks.cpu().detach().numpy(), bin_pred, average=False)
-        
-        
-        tmp_sq_err, tmp_counters = compute_squared_errors(regr_pred, masks, len(self.hparams.dataset_specs.mask_intervals))
-        
-        severity_pred = regr_pred.clamp(0, max=(len(self.hparams.dataset_specs.mask_intervals) - 1)).round().squeeze().cpu().detach().numpy().astype("float")
-        
-        severity_pred *= (255.0/(len(self.hparams.dataset_specs.mask_intervals) - 1))
-        
-        out_path = self.hparams.checkpoint.dirpath / "predictions"
-        out_path.mkdir(parents=True, exist_ok=True)
-        for i in range(images.shape[0]):
-            Image.fromarray(255*bin_pred[i].astype(float)).convert('RGB').save(out_path / f"bin_{batch_idx*self.hparams.batch_size + i}.png")
-            Image.fromarray(severity_pred[i]).convert('RGB').save(out_path / f"sev_{batch_idx*self.hparams.batch_size + i}.png")
-            
-        return {'regr': [tmp_sq_err, tmp_counters], 'bin': [intersection, union]}
-    
-    def test_epoch_end(self, outputs):
-        r_outputs = np.array([out['regr'] for out in outputs])
-        bin_outputs = np.array([out['bin'] for out in outputs])
-        
-        sqe = r_outputs[:, 0, :].sum(axis=0)
-        counters = r_outputs[:, 1, :].sum(axis=0)
-        
-        print(bin_outputs.shape, bin_outputs[0].shape)
-        intersections = bin_outputs[:, 0].flatten()
-        unions = bin_outputs[:, 1].flatten()
-        ious = (intersections + 1e-6) / (unions + 1e-6)
-        pd.DataFrame([intersections, unions, ious], index=['intersection', 'union', 'iou']).T.to_csv(self.hparams.checkpoint.dirpath / "bin_iou.csv")
-        
-        mse = np.true_divide(sqe, counters, np.full(sqe.shape, np.nan), where=counters != 0)
-        pd.DataFrame(np.sqrt(mse), columns=[self.logger.experiment.name]).T.rename(columns={5: 'all'}).to_csv(self.hparams.checkpoint.dirpath / "rmse.csv")
         
 
     def _get_current_lr(self):
@@ -347,24 +298,53 @@ class Double_Satmodel(Satmodel):
             return self.optimizers, [scheduler]
         return self.optimizers
     
+    def test_step(self, batch, batch_idx):
+        images = batch["image"]
+        masks = batch["mask"]
 
-
-# def compute_train_test_folders(master_folder, test_prefix, ignore_list=None):
-#     test_set = set()
-#     train_set = set()
-
-#     # creates a 'test_set' and 'train_set' lists with the folder names
-#     for dirname in os.listdir(master_folder):
-#         is_test = False
-#         if ignore_list is not None and dirname in ignore_list:
-#             continue
-#         for prefix in test_prefix:
-#             if dirname.startswith(prefix):
-#                 is_test = True
-#                 test_set.add(dirname)
-#                 break
-
-#         if not is_test:
-#             train_set.add(dirname)
-
-#     return train_set, test_set
+        bin_pred, regr_pred = self.model(images)
+        
+        bin_pred = torch.sigmoid(bin_pred).squeeze().cpu().detach().numpy() > 0.5
+        
+        intersection, union = binary_mean_iou(masks.cpu().detach().numpy(), bin_pred, average=False)
+        
+        intersection = intersection.sum()
+        union = union.sum()
+        
+        regr_pred = regr_pred.clamp(0, max=(len(self.hparams.dataset_specs.mask_intervals) - 1))
+        tmp_sq_err, tmp_counters = compute_squared_errors(regr_pred, masks,
+                                                          len(self.hparams.dataset_specs.mask_intervals)
+                                                         )
+        
+        severity_pred = regr_pred.round().squeeze().cpu().detach().numpy().astype("float")
+        
+        severity_pred *= (255.0/(len(self.hparams.dataset_specs.mask_intervals) - 1))
+        
+        out_path = self.hparams.checkpoint.dirpath / "predictions"
+        out_path.mkdir(parents=True, exist_ok=True)
+        for i in range(images.shape[0]):
+            Image.fromarray(255*bin_pred[i].astype(float)).convert('RGB').save(out_path / f"bin_{batch_idx*self.hparams.batch_size + i}.png")
+            Image.fromarray(severity_pred[i]).convert('RGB').save(out_path / f"sev_{batch_idx*self.hparams.batch_size + i}.png")
+            
+        return {'regr': [tmp_sq_err, tmp_counters], 'bin': [intersection, union]}
+    
+    def test_epoch_end(self, outputs):
+        r_outputs = np.array([out['regr'] for out in outputs])
+        bin_outputs = np.array([out['bin'] for out in outputs])
+                
+        sqe = r_outputs[:, 0, :].sum(axis=0)
+        counters = r_outputs[:, 1, :].sum(axis=0)
+        
+        intersections, unions = bin_outputs.sum(0)
+        
+        ious = (intersections + 1e-6) / (unions + 1e-6)
+        pd.DataFrame([intersections, unions, ious],
+                     index=['intersection', 'union', 'iou'],
+                     columns=['value'],
+                    ).to_csv(self.hparams.checkpoint.dirpath / "bin_kpi.csv")
+        
+        mse = np.true_divide(sqe, counters, np.full(sqe.shape, np.nan), where=counters != 0)
+        pd.DataFrame([sqe, counters, np.sqrt(mse)],
+                     index=['sqe', 'count', 'rmse'],
+                    ).rename(columns={5: 'all'}).to_csv(self.hparams.checkpoint.dirpath / "regr_kpi.csv")
+    

@@ -4,7 +4,6 @@ binary: True
 batch_size: 16
 n_channels: 12
 epochs: 50
-imagenet: False
 seed: 47
 patience: 5
 tol: 0.01
@@ -18,7 +17,8 @@ regr_criterion:
 
 model:
   name: AttentionUnet
-  encoder_weights: imagenet
+#   encoder_weights: imagenet
+  encoder_weights: null
   encoder_name: resnet34
   classes: 1
   n_channels: 12
