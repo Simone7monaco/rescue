@@ -14,10 +14,11 @@ def main():
         ls = None
 
     args = get_args()
-    for k in validation_dict.keys():
-        for seed in [1,2,3]:
-            for model in ['unet', 'segnet', 'nestedunet', 'attentionunet']:
-#             for model in ['attentionunet']:
+#     for seed in [1,2,3]:
+    for seed in [1]:
+        for k in list(validation_dict.keys())[::-1]:
+#             for model in ['unet', 'segnet', 'nestedunet']:
+            for model in ['attentionunet']:
                 args.model_name = model
                 args.seed = seed
                 args.key = k
@@ -25,6 +26,7 @@ def main():
 #                 args.losses = 'bcemse'
                 print(f'>> run_double {" ".join([f"--{k}={v}" for k, v in vars(args).items()])}\n')
                 double_train(args)
+#                 single_train(args)
                 print("\n\n\n")
             
 if __name__ == '__main__':

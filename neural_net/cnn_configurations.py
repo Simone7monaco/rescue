@@ -27,6 +27,16 @@ validation_dict = {'purple': 'coral',
                    'lime': 'coral',
                    'magenta': 'coral'
                   }
+#     {
+#         "blue": "fucsia",
+#         "brown": "fucsia",
+#         "fucsia": "green",
+#         "green": "fucsia",
+#         "orange": "fucsia",
+#         "red": "fucsia",
+#         "yellow": "fucsia",
+#     }
+
 
 def TrainingConfig(**args):
     with open(Path.cwd() / "configs/models.yaml", "r") as f:
@@ -35,15 +45,15 @@ def TrainingConfig(**args):
     with open(Path.cwd() / "configs/losses.yaml", "r") as f:
         losses = ed(yaml.load(f, Loader=yaml.SafeLoader))
     
-    mod_name = [f for f in models.keys() if args["model_name"].lower() == f.lower()]
+    mod_name = next(f for f in models.keys() if args["model_name"].lower() == f.lower())
     
-    if (Path.cwd() / f"configs/{mod_name}.yaml").exists():
-        with open(Path.cwd() / f"configs/{mod_name}.yaml", "r") as f:
-            hparams = ed(yaml.load(f, Loader=yaml.SafeLoader))
-    else:
-        with open(Path.cwd() / "configs/UNet.yaml", "r") as f:
-            hparams = ed(yaml.load(f, Loader=yaml.SafeLoader))
-            hparams.model = models[mod_name[0]]
+#     if (Path.cwd() / f"configs/{mod_name}.yaml").exists():
+#         with open(Path.cwd() / f"configs/{mod_name}.yaml", "r") as f:
+#             hparams = ed(yaml.load(f, Loader=yaml.SafeLoader))
+#     else:
+    with open(Path.cwd() / "configs/UNet.yaml", "r") as f:
+        hparams = ed(yaml.load(f, Loader=yaml.SafeLoader))
+        hparams.model = models[mod_name]
             
     if args["losses"]:
         loss_key = next((key for key in losses.config_names.keys() if args["losses"] in re.sub('[^A-Za-z0-9]+', '', key).lower()))
@@ -62,24 +72,15 @@ def TrainingConfig(**args):
                 found = True
         if not found: print(f"\nParameter `{k}` not found.\n")
     
-    print(f"Selecting model {mod_name[0]} as backbone")
+    print(f"Selecting model {mod_name} as backbone")
     
     hparams.dataset_specs.mask_intervals = [(0, 36), (37, 96), (97, 160), (161, 224), (225, 255)]
     
     hparams.groups = read_groups(hparams.fold_separation_csv)
     
     hparams.validation_dict = validation_dict
-#     {
-#         "blue": "fucsia",
-#         "brown": "fucsia",
-#         "fucsia": "green",
-#         "green": "fucsia",
-#         "orange": "fucsia",
-#         "red": "fucsia",
-#         "yellow": "fucsia",
-#     }
     
-    if "imagenet" in hparams.model.values():
+    if "imagenet" in hparams.model.values() and False:
         print("\n> Using imagenet preprocessing.")
         mn = [1 for i in range(hparams.model.n_channels)]
         std = [1 for i in range(hparams.model.n_channels)]
