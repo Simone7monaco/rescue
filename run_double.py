@@ -41,7 +41,7 @@ def train(args):
     if args.losses: name += f"_{args.losses.lower()}"
     if args.seed is not None: name += f"_{args.seed}"
     
-    outdir = Path(f"../data/new_ds_logs/Propaper/{name}")#_imgnotnorm")
+    outdir = Path(f"../data/new_ds_logs/Propaper/legion/{name}")#_imgnotnorm")
     
     outdir.mkdir(parents=True, exist_ok=True)
     
@@ -61,13 +61,14 @@ def train(args):
         
     logger = WandbLogger(save_dir=outdir, name=name)
     logger.log_hyperparams(hparams)
+#     logger = None
     
     #### 1st network ###################
     if not any(outdir.glob("bin*best*")):
         earlystopping_1 = EarlyStopping(**hparams.earlystopping)
         checkpoint_1 = ModelCheckpoint(**hparams.checkpoint, filename='binary_model-{epoch}')
         
-        bin_model = Double_Satmodel(hparams, {'log_imgs': not args.discard_images, 'binary': True})
+        bin_model = Double_Satmodel(hparams, {'log_imgs': not args.discard_images, 'binary': True, 'log_res':True})
 
         logger.watch(bin_model, log='all', log_freq=1)
         trainer = pl.Trainer(
@@ -90,9 +91,13 @@ def train(args):
     if not any(outdir.glob("reg*best*")):
         earlystopping_2 = EarlyStopping(**hparams.earlystopping)
         checkpoint_2 = ModelCheckpoint(**hparams.checkpoint, filename='regression_model-{epoch}')
-
+        
+#         intermediate_chp = next(outdir.glob("reg*.ckpt"), None)
+#         if intermediate_chp:
+#             best = str(intermediate_chp)
+            
         regr_model = Double_Satmodel.load_from_checkpoint(best,#checkpoint_1.best_model_path,
-                                                          opt={'log_imgs': not args.discard_images, 'binary': False}
+                                                          opt={'log_imgs': not args.discard_images, 'binary': False, 'log_res':True}
                                                   )
         trainer = pl.Trainer(
             **hparams.trainer,

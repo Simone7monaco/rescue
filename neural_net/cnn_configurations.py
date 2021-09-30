@@ -4,7 +4,6 @@ import re
 from pathlib import Path
 from easydict import EasyDict as ed
 
-from config import *
 from neural_net.cross_validator import ConcatenatedCrossValidator, CrossValidator, GradcamCrossValidator
 from neural_net import *
 from neural_net.transform import *
@@ -27,6 +26,8 @@ validation_dict = {'purple': 'coral',
                    'lime': 'coral',
                    'magenta': 'coral'
                   }
+
+mask_intervals = [(0, 36), (37, 96), (97, 160), (161, 224), (225, 255)]
 #     {
 #         "blue": "fucsia",
 #         "brown": "fucsia",
@@ -74,7 +75,7 @@ def TrainingConfig(**args):
     
     print(f"Selecting model {mod_name} as backbone")
     
-    hparams.dataset_specs.mask_intervals = [(0, 36), (37, 96), (97, 160), (161, 224), (225, 255)]
+    hparams.dataset_specs.mask_intervals = mask_intervals
     
     hparams.groups = read_groups(hparams.fold_separation_csv)
     
@@ -149,169 +150,3 @@ def read_groups(satellite_folds, verbose=False):
             print(f'folders ({len(folder_list)}): {str(folder_list)}')
         groups[key] = folder_list
     return groups
-
-
-class ConcatTypes:
-    """
-    Specifies the different Concatenated Unet types, based on loss functions.
-    """
-    BCE_MSE = 'BCE-MSE'
-    DICE_MSE = 'DICE-MSE'
-    SoftIoU_MSE = 'IoU-MSE'
-    SoftIoU_SoftIoU = 'SoftIoU-SoftIoU'
-    ComboBSM = 'Combo  BCE-softIoU_MSE'
-    ComboBDM = 'Combo  BCE-DICE_MSE'
-    F1MSE = 'BCE-F1*MSE'
-    @staticmethod
-    def get_loss_tuple(model_type, training_config):
-        """
-        Return loss tuple (firstUnet, secondUnet), given unet type
-        @param model_type: select one among ConcatTypes (e.g. ConcatTypes.BCE_MSE)
-        @param training_config: TrainingConfig object, with configuration
-        """
-        if model_type == ConcatTypes.BCE_MSE:
-            loss_first_args = {'index': 0, 'gt_one_hot': training_config.mask_one_hot, 'loss': nn.BCEWithLogitsLoss()}
-            loss_second_args = {'index': 1, 'gt_one_hot': training_config.mask_one_hot, 'loss': nn.MSELoss()}
-        elif model_type == ConcatTypes.DICE_MSE:
-            loss_first_args = {'index': 0, 'gt_one_hot': training_config.mask_one_hot, 'loss': GDiceLossV2()}
-            loss_second_args = {'index': 1, 'gt_one_hot': training_config.mask_one_hot, 'loss': nn.MSELoss()}
-        elif model_type == ConcatTypes.SoftIoU_MSE:
-            loss_first_args = {'index': 0, 'gt_one_hot': training_config.mask_one_hot, 'loss': FuzzyIoULoss()}
-            loss_second_args = {'index': 1, 'gt_one_hot': training_config.mask_one_hot, 'loss': nn.MSELoss()}
-        elif model_type == ConcatTypes.SoftIoU_SoftIoU:
-            loss_first_args = {'index': 0, 'gt_one_hot': training_config.mask_one_hot, 'loss': FuzzyIoULoss()}
-            loss_second_args = {'index': 1, 'gt_one_hot': training_config.mask_one_hot, 'loss': softIoULoss()}
-        elif model_type == ConcatTypes.ComboBSM:
-            loss_first_args = {'index': 0, 'gt_one_hot': training_config.mask_one_hot, 'loss': ComboLoss(nn.BCEWithLogitsLoss(), FuzzyIoULoss())}
-            loss_second_args = {'index': 1, 'gt_one_hot': training_config.mask_one_hot, 'loss': nn.MSELoss()}
-        elif model_type == ConcatTypes.ComboBDM:
-            loss_first_args = {'index': 0, 'gt_one_hot': training_config.mask_one_hot, 'loss': ComboLoss(nn.BCEWithLogitsLoss(), GDiceLossV2())}
-            loss_second_args = {'index': 1, 'gt_one_hot': training_config.mask_one_hot, 'loss': nn.MSELoss()}
-        elif model_type == ConcatTypes.F1MSE:
-            loss_first_args = {'index': 0, 'gt_one_hot': training_config.mask_one_hot, 'loss': nn.BCEWithLogitsLoss()}
-            loss_second_args = {'index': 1, 'gt_one_hot': training_config.mask_one_hot, 'loss': F1MSE()}
-
-        return (IndexLoss, loss_first_args), (IndexLoss, loss_second_args)
-
-
-class SingleTypes:
-    """
-    Specifies the different <Single>Net types, based on loss functions.
-    """
-    MSE = 'MSE'
-    SoftIoU = 'Soft IoU'
-    F1MSE = 'F1*MSE'
-    @staticmethod
-    def get_loss_tuple(model_type, training_config):
-        """
-        Return loss function, given <Single>net type
-        @param model_type: select one among SingleTypes (e.g. SingleTypes.MSE)
-        @param training_config: TrainingConfig object, with configuration
-        """
-        if model_type == SingleTypes.MSE:
-            return nn.MSELoss, {}
-        if model_type == SingleTypes.SoftIoU:
-            return softIoULoss, {}
-        elif model_type == SingleTypes.F1MSE:
-            return F1MSE, {}
-
-
-class GradcamTypes:
-    """
-    Specifies the different binary <Single>Net types, based on loss functions for gradcam analysis.
-    """
-    DICE = 'Dice loss'
-    BCE = 'BCE loss'
-    SoftIoU = 'Soft IoU'
-    @staticmethod
-    def get_loss_tuple(model_type, training_config):
-        """
-        Return loss function, given <Single>net type
-        @param model_type: select one among SingleTypes (e.g. SingleTypes.MSE)
-        @param training_config: TrainingConfig object, with configuration
-        """
-        if model_type == GradcamTypes.DICE:
-            return GDiceLossV2, {}
-        if model_type == GradcamTypes.BCE:
-            return nn.BCEWithLogitsLoss, {}
-        if model_type == GradcamTypes.SoftIoU:
-            return FuzzyIoULoss, {}
-
-
-def run_configuration(model_id, name, model_type, config, backbones=None, single_fold=False, gradcam=False):
-    """
-    Run training configuration for Concatenated Unet
-    @param model_id: model id, used to run the correct cv (0: unet, 1: PSPNet)
-    @param name: configuration name, used for output folders
-    @param model_type: select one among <Net>Types (e.g., ConcatTypes.BCE_MSE)
-    @param training_config: TrainingConfig object, with configuration
-    """
-    base_dir = pretrained_dir if single_fold else base_result_dir
-    result_path = os.path.join(base_dir, name)
-    print('------')
-    print(f'Selected model: {model_names[model_id] +", "+ model_type}')
-    print(f'Batch size: {config.batch_size}')
-    print(f'Result path: {result_path}')
-    print('------')
-
-    # Select model:
-
-    model_tuples = {
-        0: (ConcatenatedUNet, {'n_channels': config.n_channels, 'act': 'relu'}),
-        1: (PSPNet, {'output_type':'regr', 'n_channels': config.n_channels, 'regr_range':4, 'backend':'resnet18'}),
-        2: (NestedUNet, {'output_type':'regr', 'n_channels': config.n_channels, 'regr_range':4, 'act': 'relu'}),
-        3: (ConcatenatedNestedUNet, {'n_channels': config.n_channels, 'act': 'relu'}),
-        4: (SegNet, {'n_channels': config.n_channels}),
-        5: (ConcatenatedSegNet, {'n_channels': config.n_channels}),
-        # 6: (MixedNet, {'n_channels': config.n_channels, 'bin_net': backbones[0], 'regr_net': backbones[1]}),
-        7: (UNet, {'n_channels': config.n_channels, 'n_classes': 1, 'act': 'relu'}),
-    }
-
-    if gradcam:
-        criterion_tuple = GradcamTypes.get_loss_tuple(model_type, config)  # Get loss function config
-    else:
-        if model_id in [0, 3, 5, 6]:
-            criterion_tuple = ConcatTypes.get_loss_tuple(model_type, config)  # Get loss function config
-        else:
-            criterion_tuple = SingleTypes.get_loss_tuple(model_type, config)  # Get loss function config
-
-    model_tuple = model_tuples[model_id]
-
-    # Supervision during training: evaluate results after each epoch
-    bin_perf_func = AccuracyBinStorage(config.mask_one_hot)
-    regr_perf_func = AccuracyAllStorage(config.mask_one_hot)
-    single_regr_perf_func = AccuracySingleRegrStorage()
-
-    if gradcam:
-        cv = GradcamCrossValidator(config.groups, model_tuple, criterion_tuple, config.train_transform, config.test_transform,
-                                config.master_folder, config.satellite_csv_path, config.epochs, config.batch_size,
-                                config.lr, config.wd, config.product_list, config.mode, config.process_dict,
-                                config.mask_intervals, config.mask_one_hot, config.height, config.width,
-                                config.filter_validity_mask, config.only_burnt, config.mask_filtering, config.seed, result_path,
-                                config.scheduler_tuple, performance_eval_func=bin_perf_func,
-                                squeeze_mask=False, early_stop=True, patience=config.patience, tol=config.tol,
-                                validation_dict=config.validation_dict)
-    else:
-        if model_id in [0, 3, 5, 6]:
-            cv = ConcatenatedCrossValidator(config.groups, model_tuple, criterion_tuple, config.train_transform, config.test_transform,
-                                            config.master_folder, config.satellite_csv_path, config.epochs, config.batch_size,
-                                            config.lr, config.wd, config.product_list, config.mode, config.process_dict,
-                                            config.mask_intervals, config.mask_one_hot, config.height, config.width,
-                                            config.filter_validity_mask, config.only_burnt, config.mask_filtering, config.seed, result_path,
-                                            config.scheduler_tuple, performance_eval_func=bin_perf_func, second_eval_func=regr_perf_func,
-                                            squeeze_mask=False, early_stop=True, patience=config.patience, tol=config.tol,
-                                            validation_dict=config.validation_dict, single_fold=single_fold)
-        elif model_id in [1, 2, 4, 7]:
-            cv = CrossValidator(config.groups, model_tuple, criterion_tuple, config.train_transform, config.test_transform,
-                                config.master_folder, config.satellite_csv_path, config.epochs, config.batch_size,
-                                config.lr, config.wd, config.product_list, config.mode, config.process_dict,
-                                config.mask_intervals, config.mask_one_hot, config.height, config.width,
-                                config.filter_validity_mask, config.only_burnt, config.mask_filtering, config.seed, result_path,
-                                config.scheduler_tuple, performance_eval_func=single_regr_perf_func,
-                                squeeze_mask=False, early_stop=True, patience=config.patience, tol=config.tol,
-                                is_regression=True, validation_dict=config.validation_dict
-                                )
-
-
-    cv.start()
-

@@ -111,10 +111,15 @@ def produce_report(cm, result_path, test_set=None, sq_err=None, num_el=None, cm2
 def compute_squared_errors(prediction, ground_truth, n_classes, check=False):
     """
     Separately for each class, compute total squared error (sq_err_res), and total count (count_res)
-    return tuple:
-    sq_errors, counts
-    sq_errors = np.array([sq_err_class0, sq_err_class1,..., total_sq_Err_all_classes])
-    counts = np.array([n_pixels_class0, n_pixels_class1,..., total_pixels])
+    
+    Returns:
+    -----
+    (tuple)
+    sq_errors: np.array([sq_err_class0, sq_err_class1,
+               ..., total_sq_Err_all_classes])
+               
+    counts: np.array([n_pixels_class0, n_pixels_class1,
+            ..., total_pixels])
     """
 
     squared_errors = [] # squared error for each class
@@ -168,7 +173,8 @@ def compute_squared_errors(prediction, ground_truth, n_classes, check=False):
         mse_check = np.array(mse_check)
         assert (np.abs(mymse - mse_check) < 1e-6).all()
 
-    return sq_err_res, count_res # [sq_err_class0, sq_err_class1,..., total_sq_Err_all_classes], [n_pixels_class0,..., total_pixels]
+    return sq_err_res, count_res
+
 
 def compute_prec_recall_f1_acc(conf_matr):
     accuracy = np.trace(conf_matr) / conf_matr.sum()

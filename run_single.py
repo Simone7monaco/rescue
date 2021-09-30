@@ -1,24 +1,6 @@
 import os
 import argparse
-import ast
-from pathlib import Path
-import pickle
-import wandb
-from easydict import EasyDict as ed
-
-import torch
-from neural_net.cnn_configurations import TrainingConfig
 from neural_net.utils import str2bool
-
-import pytorch_lightning as pl
-from pytorch_lightning.callbacks import ModelCheckpoint
-from pytorch_lightning.callbacks.early_stopping import EarlyStopping
-from pytorch_lightning.loggers import WandbLogger
-
-from base_train import Satmodel
-import neural_net
-import matplotlib.pyplot as plt
-
 
 def get_args():
     parser = argparse.ArgumentParser(description='Training of the U-Net usign Pytorch Lightining framework.')
@@ -28,12 +10,31 @@ def get_args():
     parser.add_argument('--losses', type=str, default=None, help = "Select the configuration name of the loss function(s). The name must be written in lower casses without special characters.")
     
     parser.add_argument('--lr', type=float, default=None, help = "Custom lr.")
+    parser.add_argument('--batch_size', type=int, default=None, help = "Custom batch size.")
     parser.add_argument('--seed', type=int, default=7, help = "Custom seed.")
 #     parser.add_argument('--encoder', type=str, default='resnet34', help = "Select the model encoder (only available for smp models). Default is resnet34.")
     
     args = parser.parse_args()
 
     return args
+
+import ast
+from pathlib import Path
+import pickle
+import wandb
+from easydict import EasyDict as ed
+
+import torch
+from neural_net.cnn_configurations import TrainingConfig
+
+import pytorch_lightning as pl
+from pytorch_lightning.callbacks import ModelCheckpoint
+from pytorch_lightning.callbacks.early_stopping import EarlyStopping
+from pytorch_lightning.loggers import WandbLogger
+
+from base_train import Satmodel
+import neural_net
+import matplotlib.pyplot as plt
 
 
 def train(args):        

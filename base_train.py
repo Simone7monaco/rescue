@@ -44,6 +44,11 @@ class Satmodel(pl.LightningModule):
             setattr(self, key, opt.get(key, True))
             
         self.hparams = hparams
+        
+        if not "SLURM_JOB_ID" in os.environ:
+            hparams.num_workers = 0
+            hparams.batch_size = 8
+        
         self.save_hyperparameters()
         self.model = self.get_model()
         self.drop_last = False
@@ -87,6 +92,8 @@ class Satmodel(pl.LightningModule):
         return self.optimizers
 
     def setup(self, stage=0):
+        self.hparams.num_workers = 0
+        self.hparams.batch_size = 8
         ordered_keys = list(self.hparams.groups.keys())
 
         validation_fold_name = self.hparams.validation_dict[self.hparams.key]
@@ -233,6 +240,12 @@ class Satmodel(pl.LightningModule):
 
         if torch.cuda.is_available(): return torch.Tensor([lr])[0].cuda()
         return torch.Tensor([lr])[0]
+    
+    def validation_end(self, outputs):
+        # OPTIONAL
+        avg_loss = torch.stack([x['val_loss'] for x in outputs]).mean()
+        tensorboard_logs = {'val_loss': avg_loss}
+        return {'val_loss': avg_loss}
 
 #     def validation_epoch_end(self, outputs):
 #         self.log("epoch", self.trainer.current_epoch)
