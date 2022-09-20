@@ -1,7 +1,7 @@
-Pillow == 8.1.0
+Pillow
 easydict == 1.9
 matplotlib == 3.1.2
-numpy == 1.19.2
+numpy
 opencv_python == 4.5.1.48
 pandas == 1.1.2+1.g514aca06b1
 pytorch_lightning == 1.2.10
